@@ -3,6 +3,8 @@
 .RData
 .Ruserdata
 .DS_Store
+.cursorrules
+
 
 # Large Data & Inputs
 snps_all/
