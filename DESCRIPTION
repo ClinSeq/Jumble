@@ -1,0 +1,45 @@
+Package: Jumble
+Type: Package
+Title: Copy Number Analysis of Short Read Sequencing Data
+Version: 0.1.0
+Authors@R: c(
+    person("Markus", "Mayrhofer", email = "markus.mayrhofer@ki.se", role = c("aut", "cre")),
+    person("Johan", "Lindberg", role = "aut")
+  )
+Description: Jumble is a method for copy number analysis of short read sequencing data. 
+    It provides functions for counting reads, building reference panels, and calling copy number alterations.
+License: GPL-3
+Encoding: UTF-8
+LazyData: true
+VignetteBuilder: knitr
+biocViews: Software, CopyNumberVariation, Sequencing, Coverage, WholeGenome, TargetedSequencing
+RoxygenNote: 7.3.3
+Imports: 
+    bamsignals,
+    BSgenome,
+    BSgenome.Hsapiens.UCSC.hg19,
+    data.table,
+    doParallel,
+    GenomicRanges,
+    ggplot2,
+    MASS,
+    patchwork,
+    optparse,
+    PSCBS,
+    Repitools,
+    Rsamtools,
+    stringr,
+    VariantAnnotation,
+    biomaRt,
+    GenomeInfoDb,
+    fastICA,
+    SummarizedExperiment,
+    S4Vectors,
+    ggrepel
+Suggests: 
+    BSgenome.Hsapiens.UCSC.hg38,
+    testthat,
+    knitr,
+    rmarkdown
+Depends: 
+    R (>= 3.5)

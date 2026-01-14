@@ -1,0 +1,39 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+
+# Large Data & Inputs
+snps_all/
+additional_tests_input/
+# dev_tests/
+*.vcf
+*.vcf.gz
+*.tbi
+*.bam
+*.bai
+
+# Validation Outputs
+*.csv
+*.RDS
+*.pdf
+*.png
+
+# Development Scripts
+dev_tests/
+original files/
+quickstart_test/
+verify_*.R
+vignette_*.R
+create_sam.R
+diagnose_bam.R
+generate_hg38_bam.R
+debug_output_*.txt
+hg*ToHg*.over.chain*
+
+# Test Outputs
+additional_tests_output/
+dev_test_output/
+dev_test_input/
+
