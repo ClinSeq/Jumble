@@ -16,6 +16,7 @@ biocViews: Software, CopyNumberVariation, Sequencing, Coverage, WholeGenome, Tar
 RoxygenNote: 7.3.3
 Imports: 
     bamsignals,
+    Biostrings,
     BSgenome,
     BSgenome.Hsapiens.UCSC.hg19,
     data.table,
@@ -26,7 +27,6 @@ Imports:
     patchwork,
     optparse,
     PSCBS,
-    Repitools,
     Rsamtools,
     stringr,
     VariantAnnotation,

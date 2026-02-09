@@ -64,8 +64,7 @@ compute_reference_pca <- function(reference) {
   keep_bins_high <- targets[, median(count), by = bin][V1 < threshold_high]$bin
   targets <- targets[bin %in% keep_bins_high]
 
-  # Low mappability
-  targets <- targets[map > 0.6]
+  # (Mappability filter removed - not essential for normalization)
 
   # 3. Initial Corrections ---------------------------------------------------
   # LogR
