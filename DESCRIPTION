@@ -32,7 +32,6 @@ Imports:
     VariantAnnotation,
     biomaRt,
     GenomeInfoDb,
-    fastICA,
     SummarizedExperiment,
     S4Vectors,
     ggrepel
