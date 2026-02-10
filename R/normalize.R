@@ -86,11 +86,12 @@ compute_reference_pca <- function(reference) {
 
   # X-Y chromosome correct (matching original script lines 299-328)
   # Doctor the X values in samples where their median implies male
+  # Gender is detected ONCE per sample (not separately for target/background)
   targets[, xmedian := median(rawLR[chromosome == "X" & is_tiled == FALSE],
     na.rm = TRUE
-  ), by = c("sample", "is_target")]
+  ), by = "sample"]
   targets[, xmedian_short := median(rawLR_short[chromosome == "X" &
-    is_tiled == FALSE], na.rm = TRUE), by = c("sample", "is_target")]
+    is_tiled == FALSE], na.rm = TRUE), by = "sample"]
   targets[, male := 2^xmedian < 0.75] # assign gender
 
   # hard coded PA
@@ -411,8 +412,8 @@ normalize_sample <- function(targets, reference_pca) {
   targets[log2 > 7, log2 := 7]
   targets[log2_short < -4, log2_short := -4]
   targets[log2_short > 7, log2_short := 7]
-  targets[chromosome == "Y", log2 := NA]
-  targets[chromosome == "Y", log2_short := NA]
+  # Note: Y chromosome log2 values remain NA (not normalized/not in PCA)
+  # but raw values (count, rawLR) are preserved for inspection
 
   # 5. Sort Genomically ------------------------------------------------------
   # Ensure targets are sorted by chromosome and start for correct plotting/downstream analysis
