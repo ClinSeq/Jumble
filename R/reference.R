@@ -232,7 +232,7 @@ generate_gene_annotation <- function(genome = "hg19", mirror = NULL) {
 #' @importFrom data.table fread data.table rbindlist as.data.table := setkey
 #' @importFrom GenomicRanges makeGRangesFromDataFrame seqnames width start end
 #' @importFrom GenomeInfoDb seqlevelsStyle<-
-#' @importFrom Repitools gcContentCalc mappabilityCalc
+#' @importFrom Biostrings getSeq letterFrequency
 #' @importFrom BSgenome.Hsapiens.UCSC.hg19 Hsapiens
 #' @importFrom stringr str_remove
 #' @export
@@ -411,23 +411,15 @@ build_reference <- function(count_files, annotation_source = "biomart",
   }
 
   # GC Content Calculation
-  # We calculate the GC content for each bin using the selected BSgenome package.
+  # We calculate the GC content for each bin using the selected  # GC Content Calculation
   # This is crucial for normalization, as coverage often correlates with GC
-  # content.
+  # content. Using Biostrings directly instead of Repitools.
+  message("Calculating GC content.")
   targets[, gc := as.double(NA)]
-  targets[is_target %in% c(TRUE, FALSE)]$gc <- gcContentCalc(ucsc_ranges,
-    organism = bsgenome
-  )
-
-  # Mappability Calculation
-  # We calculate mappability to identify repetitive regions where read alignment
-  # is difficult.
-  # Low mappability bins may be filtered or treated differently during
-  # segmentation.
-  targets[, map := as.double(NA)]
-  targets[is_target %in% c(TRUE, FALSE)]$map <- mappabilityCalc(ucsc_ranges,
-    organism = bsgenome
-  )
+  target_ranges <- ucsc_ranges
+  seqs <- Biostrings::getSeq(bsgenome, target_ranges)
+  gc_values <- Biostrings::letterFrequency(seqs, letters = "GC", as.prob = TRUE)[,1]
+  targets[is_target %in% c(TRUE, FALSE)]$gc <- gc_values
 
 
   # 6. Create Object ---------------------------------------------------------
