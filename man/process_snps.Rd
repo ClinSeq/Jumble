@@ -4,12 +4,12 @@
 \alias{process_snps}
 \title{Process SNPs from VCF}
 \usage{
-process_snps(vcf_file, targets)
+process_snps(vcf_file, targets, sample_name = NULL)
 }
 \arguments{
 \item{vcf_file}{Path to the VCF file.}
 
-\item{targets}{Targets data.table (for bin mapping).}
+\item{sample_name}{Optional sample name to match in VCF columns.}
 }
 \value{
 A data.table containing processed SNP information, or NULL if processing fails.

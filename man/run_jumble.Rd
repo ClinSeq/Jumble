@@ -23,6 +23,14 @@ run_jumble(
 \item{output_dir}{Directory to save results.}
 
 \item{snp_vcf}{Optional path to a VCF file with SNPs.}
+
+\item{somatic_vcf}{Optional path to a VCF file with somatic variants.}
+
+\item{cores}{Number of cores (currently unused).}
+
+\item{genome}{Genome version.}
+
+\item{...}{Additional arguments.}
 }
 \value{
 A list containing results (targets, segments, etc.).

@@ -1,122 +1,138 @@
-#' Run Jumble Analysis
+#' Load Reference Data
 #'
-#' Runs the complete Jumble analysis pipeline on a query sample.
-#'
-#' @param bam_file Path to the input BAM file.
-#' @param reference_file Path to the reference RDS file.
-#' @param output_dir Directory to save results.
-#' @param snp_vcf Optional path to a VCF file with SNPs.
-#' @return A list containing results (targets, segments, etc.).
-#' @importFrom data.table fread fwrite
-#' @importFrom ggplot2 ggsave
-#' @export
-run_jumble <- function(bam_file, reference_file, output_dir = ".",
-                       snp_vcf = NULL, somatic_vcf = NULL, cores = 1, genome = NULL, ...) {
-  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
-
-  # 1. Load Reference --------------------------------------------------------
-  # 1. Load Reference --------------------------------------------------------
+#' @param reference_file Path to reference RDS file or reference object
+#' @return Reference object
+#' @keywords internal
+load_reference_data <- function(reference_file) {
   if (is.character(reference_file)) {
     message("Loading reference: ", reference_file)
     reference <- readRDS(reference_file)
   } else {
     reference <- reference_file
   }
+  return(reference)
+}
 
-  # 2. Reference PCA ---------------------------------------------------------
-  message("Computing reference PCA...")
-  ref_pca <- compute_reference_pca(reference)
-
-  # 3. Counts ----------------------------------------------------------------
-  message("Generating counts for query sample...")
-  # Check if input is BAM or Counts
+#' Load or Generate Counts
+#'
+#' @param bam_file Path to BAM file or counts RDS
+#' @param reference Reference object
+#' @param output_dir Output directory
+#' @return Counts list
+#' @keywords internal
+load_or_generate_counts <- function(bam_file, reference, output_dir) {
+  # Check if input is pre-computed counts
   if (grepl("\\.RDS$", bam_file, ignore.case = TRUE)) {
     counts <- readRDS(bam_file)
-    bam_path <- counts$input_bam_file
-
-    # Ensure counts match reference order/template
-    # If the counts RDS was generated with a different order (e.g. unsorted), we must reorder it
-    if (!is.null(counts$ranges) && !is.null(reference$ranges)) {
-      # Create GRanges for matching
-      # Assuming identical binning, just different order
-
-      # Check if identical first (quick check)
-      if (!identical(counts$ranges, reference$ranges)) {
-        message("Reordering input counts to match reference template...")
-
-        # Use findOverlaps to map input ranges to reference ranges
-        # We expect 1:1 mapping
-        ol <- GenomicRanges::findOverlaps(reference$ranges, counts$ranges, type = "equal")
-
-        # Check for completeness
-        if (length(ol) != length(reference$ranges)) {
-          warning("Input counts RDS does not fully match reference ranges. Some bins may be missing or mismatched.")
-        }
-
-        # Get the index of the matching input bin for each reference bin
-        # subjectHits(ol) is indices in counts$ranges
-        # queryHits(ol) is indices in reference$ranges
-
-        # We want reference 1..N. map[i] = input_index_for_ref_i
-        map <- rep(NA, length(reference$ranges))
-        map[S4Vectors::queryHits(ol)] <- S4Vectors::subjectHits(ol)
-
-        if (any(is.na(map))) {
-          stop("Fatal: Input counts RDS ranges do not cover all reference ranges.")
-        }
-
-        # Reorder counts
-        if (!is.null(counts$count)) counts$count <- counts$count[map]
-        if (!is.null(counts$count_short)) counts$count_short <- counts$count_short[map]
-        if (!is.null(counts$count_medium)) counts$count_medium <- counts$count_medium[map]
-        counts$ranges <- counts$ranges[map] # Should now be identical to reference
-      }
-    }
+    counts <- reorder_counts_to_reference(counts, reference)
   } else {
-    # Use reference target bed
-    target_bed <- reference$target_bed_file
-    if (target_bed == "wgs") target_bed <- NULL
-
-    counts <- list()
-    counts$input_bam_file <- bam_file
-    counts$ranges <- reference$ranges
-    counts$chromlength <- reference$chromlength
-
-    flag <- if (!is.null(reference$flag)) reference$flag else 2816
-
-    message("Counting reads...")
-    counts$count <- bamsignals::bamCount(bam_file, reference$ranges,
-      paired.end = "midpoint",
-      mapq = 20, filteredFlag = flag, verbose = FALSE
-    )
-    counts$count_short <- bamsignals::bamCount(bam_file, reference$ranges,
-      paired.end = "midpoint",
-      mapq = 20, filteredFlag = flag, tlenFilter = c(0, 150),
-      verbose = FALSE
-    )
-
-    # Save counts
-    saveRDS(counts, file.path(output_dir, paste0(
-      basename(bam_file),
-      ".counts.RDS"
-    )))
+    counts <- generate_counts_from_bam(bam_file, reference, output_dir)
   }
+  return(counts)
+}
 
-  # 4. Prepare Targets -------------------------------------------------------
+#' Reorder Counts to Match Reference
+#'
+#' @param counts Counts object
+#' @param reference Reference object
+#' @return Reordered counts
+#' @keywords internal
+reorder_counts_to_reference <- function(counts, reference) {
+  if (!is.null(counts$ranges) && !is.null(reference$ranges)) {
+    if (!identical(counts$ranges, reference$ranges)) {
+      message("Reordering input counts to match reference template...")
+      
+      ol <- GenomicRanges::findOverlaps(reference$ranges, counts$ranges, type = "equal")
+      
+      if (length(ol) != length(reference$ranges)) {
+        warning("Input counts RDS does not fully match reference ranges. Some bins may be missing or mismatched.")
+      }
+      
+      map <- rep(NA, length(reference$ranges))
+      map[S4Vectors::queryHits(ol)] <- S4Vectors::subjectHits(ol)
+      
+      if (any(is.na(map))) {
+        stop("Fatal: Input counts RDS ranges do not cover all reference ranges.")
+      }
+      
+      # Reorder counts
+      if (!is.null(counts$count)) counts$count <- counts$count[map]
+      if (!is.null(counts$count_short)) counts$count_short <- counts$count_short[map]
+      if (!is.null(counts$count_medium)) counts$count_medium <- counts$count_medium[map]
+      counts$ranges <- counts$ranges[map]
+    }
+  }
+  return(counts)
+}
+
+#' Generate Counts from BAM File
+#'
+#' @param bam_file Path to BAM file
+#' @param reference Reference object
+#' @param output_dir Output directory
+#' @return Counts list
+#' @keywords internal
+generate_counts_from_bam <- function(bam_file, reference, output_dir) {
+  target_bed <- reference$target_bed_file
+  if (target_bed == "wgs") target_bed <- NULL
+  
+  counts <- list()
+  counts$input_bam_file <- bam_file
+  counts$ranges <- reference$ranges
+  counts$chromlength <- reference$chromlength
+  
+  flag <- if (!is.null(reference$flag)) reference$flag else 2816
+  
+  message("Counting reads...")
+  counts$count <- bamsignals::bamCount(bam_file, reference$ranges,
+                                       paired.end = "midpoint",
+                                       mapq = 20, filteredFlag = flag, verbose = FALSE
+  )
+  counts$count_short <- bamsignals::bamCount(bam_file, reference$ranges,
+                                             paired.end = "midpoint",
+                                             mapq = 20, filteredFlag = flag, tlenFilter = c(0, 150),
+                                             verbose = FALSE
+  )
+  
+  # Save counts
+  saveRDS(counts, file.path(output_dir, paste0(
+    basename(bam_file), ".counts.RDS"
+  )))
+  
+  return(counts)
+}
+
+#' Prepare Targets Data Table
+#'
+#' @param reference Reference object
+#' @param counts Counts object
+#' @param bam_file BAM file path
+#' @return Targets data.table
+#' @keywords internal
+prepare_targets <- function(reference, counts, bam_file) {
   targets <- data.table::copy(reference$target_template)
   targets[, chromosome := clean_chrom_names(chromosome)]
-  targets[, chromosome := clean_chrom_names(chromosome)]
+  
   sample_name <- basename(bam_file)
   targets[, sample := sample_name]
   targets[, count := counts$count]
   targets[, count_short := counts$count_short]
-
-  # Add count_all column if exists in counts
+  
   if (!is.null(counts$count_all)) {
     targets[, count_all := counts$count_all]
   }
+  
+  targets <- annotate_tiled_bins(targets)
+  
+  return(targets)
+}
 
-  # Annotate tiled bins (bins that are close together)
+#' Annotate Tiled Bins
+#'
+#' @param targets Targets data.table
+#' @return Targets with tiled annotations
+#' @keywords internal
+annotate_tiled_bins <- function(targets) {
   targets[, left := c(Inf, abs(diff(mid)))]
   targets[, right := c(abs(diff(mid)), Inf)]
   targets[, farthest := left]
@@ -124,266 +140,234 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   targets[, is_tiled := FALSE]
   targets[farthest < 250, is_tiled := TRUE]
   targets[, c("left", "right", "farthest") := NULL]
-
-  # Set tiled type if enough tiled bins
+  
   if (sum(targets$is_tiled == TRUE) > 500) {
     targets[is_tiled == TRUE, type := "tiled"]
   }
+  
+  return(targets)
+}
 
-  # 5. Annotations (Genes/Exons) ---------------------------------------------
+#' Add Gene Annotations to Targets
+#'
+#' @param targets Targets data.table
+#' @param reference Reference object
+#' @return Targets with gene annotations
+#' @keywords internal
+add_gene_annotations <- function(targets, reference) {
   if (!is.null(reference$allgenes) && nrow(reference$allgenes) > 0) {
     allgenes <- reference$allgenes
-    # Use columns: 'Gene name', 'Chromosome/scaffold name', 'Gene start (bp)', 'Gene end (bp)'
-
-    # makeGRanges for bins
+    
     binranges <- GenomicRanges::makeGRangesFromDataFrame(targets,
-      seqnames.field = "chromosome",
-      start.field = "start", end.field = "end"
+                                                         seqnames.field = "chromosome",
+                                                         start.field = "start", end.field = "end"
     )
-
-    # makeGRanges for genes
+    
     generanges <- GenomicRanges::makeGRangesFromDataFrame(allgenes,
-      seqnames.field = "Chromosome/scaffold name",
-      start.field = "Gene start (bp)", end.field = "Gene end (bp)",
-      keep.extra.columns = TRUE # Keep Gene name
+                                                          seqnames.field = "Chromosome/scaffold name",
+                                                          start.field = "Gene start (bp)", end.field = "Gene end (bp)",
+                                                          keep.extra.columns = TRUE
     )
-
-    # Find overlaps
+    
     ov <- GenomicRanges::findOverlaps(binranges, generanges)
-
-    # Map genes to bins
-    # Logic: A bin might overlap multiple genes. We want to list them.
-
-    # Create mapping table
+    
     mapping <- data.table::data.table(
       bin_id = S4Vectors::queryHits(ov),
       gene_symbol = allgenes$`Gene name`[S4Vectors::subjectHits(ov)]
     )
-
-    # Aggregate genes per bin (comma separated)
-    # Use efficient data.table aggregation
+    
     mapping_agg <- mapping[, .(gene = paste(unique(gene_symbol), collapse = ",")), by = bin_id]
-
-    # Assign to targets
     targets[mapping_agg$bin_id, gene := mapping_agg$gene]
   }
+  
+  return(targets)
+}
 
-  # Annotate exonic bins (overlap with exons)
+#' Add Exon Annotations to Targets
+#'
+#' @param targets Targets data.table
+#' @param reference Reference object
+#' @return Targets with exon annotations
+#' @keywords internal
+add_exon_annotations <- function(targets, reference) {
   if (!is.null(reference$allexons) && nrow(reference$allexons) > 0) {
     allexons <- reference$allexons
-    # Prepare exon ranges
+    
     exons_dt <- unique(allexons[, .(
       id = `Gene stable ID`,
       chromosome = `Chromosome/scaffold name`,
       start = `Exon region start (bp)`,
       end = `Exon region end (bp)`
     )])
-
-    # Only proceed if chromosomes match format
+    
     if (nrow(exons_dt) > 0) {
       binranges <- GenomicRanges::makeGRangesFromDataFrame(targets,
-        seqnames.field = "chromosome",
-        start.field = "start",
-        end.field = "end"
+                                                           seqnames.field = "chromosome",
+                                                           start.field = "start",
+                                                           end.field = "end"
       )
       exonranges <- GenomicRanges::makeGRangesFromDataFrame(exons_dt,
-        seqnames.field = "chromosome",
-        start.field = "start",
-        end.field = "end"
+                                                            seqnames.field = "chromosome",
+                                                            start.field = "start",
+                                                            end.field = "end"
       )
-
+      
       exon_overlap <- data.table::as.data.table(
         GenomicRanges::findOverlaps(binranges, exonranges)
       )
       targets[unique(exon_overlap$queryHits), type := "exonic"]
     }
   }
-
-  # Ensure background bins are labeled correctly
+  
   targets[is_target == FALSE, type := "background"]
+  
+  return(targets)
+}
 
-  # Define backbone
-  targets <- define_backbone(targets, reference)
-
-  # Save all targets before any processing
-  alltargets <- data.table::copy(targets)
-
-  # 6. Process SNPs ----------------------------------------------------------
-  snp_table <- NULL
-  if (!is.null(snp_vcf) && file.exists(snp_vcf)) {
-    message("Processing SNPs from VCF...")
-    snp_table <- process_snps(snp_vcf, targets, sample_name = sample_name)
-
-    if (!is.null(snp_table)) {
-      # SNP table will be saved at the end with correct sample name
-    }
-  }
-
-  # 7. Normalize -------------------------------------------------------------
-  message("Normalizing...")
-  targets <- normalize_sample(targets, ref_pca)
-
-  # Check if WGS
-  is_wgs <- FALSE
-  if (!is.null(reference$target_bed_file)) {
-    if (grepl("wgs", reference$target_bed_file, ignore.case = TRUE)) {
-      is_wgs <- TRUE
-    }
-  }
-
-  # Adjust X chromosome log2 ratios to align with background
-  # This correction matches the original script's logic (lines 744-760).
-  # It calculates the median difference between background (bg) and target (tg)
-  # bins in 1MB windows on the X chromosome and shifts the target bins by this
-  # difference.
-  # This helps normalize X chromosome coverage relative to the rest of the genome.
+#' Apply X Chromosome Correction
+#'
+#' @param targets Targets data.table
+#' @param is_wgs Logical indicating if WGS data
+#' @return Corrected targets
+#' @keywords internal
+apply_x_chromosome_correction <- function(targets, is_wgs) {
   if (!is_wgs) {
     try(
       {
-        # Filter for X chromosome bins with valid log2 values
         temp <- targets[chromosome == "X" & !is.na(log2)]
-
-        # Define 1MB windows
         temp[, pos_1M := 1 * round(start / 1e6)]
-
-        # Calculate median log2 for background and target bins within each window
         temp[, bg := as.numeric(NA)][, bg := median(log2[is_target == FALSE],
-          na.rm = TRUE
+                                                    na.rm = TRUE
         ), by = pos_1M]
         temp[, tg := as.numeric(NA)][, tg := median(log2[is_target == TRUE &
-          is_tiled == FALSE], na.rm = TRUE), by = pos_1M]
-
-        # Reduce to unique windows
+                                                           is_tiled == FALSE], na.rm = TRUE), by = pos_1M]
+        
         temp <- unique(temp[, .(pos_1M, bg, tg)])
-
-        # Smooth the medians using a running median of width 11
         temp[, bg_median := stats::runmed(bg, 11, na.action = "na.omit")]
         temp[, tg_median := stats::runmed(tg, 11, na.action = "na.omit")]
-
-        # Calculate the correction factor (median difference)
         temp[, dif := bg_median - tg_median]
         x_correct <- median(temp$dif, na.rm = TRUE)
-
-        # Apply correction to X chromosome target bins
+        
         targets[chromosome == "X" & is_target == TRUE, log2 := log2 + x_correct]
       },
       silent = TRUE
     )
   }
+  
+  return(targets)
+}
 
-  # 8. Segment ---------------------------------------------------------------
+#' Perform Segmentation
+#'
+#' @param targets Targets data.table
+#' @param reference Reference object
+#' @param alltargets Original targets before filtering
+#' @return List with targets and segments
+#' @keywords internal
+perform_segmentation <- function(targets, reference, alltargets) {
   message("Segmenting...")
-
-  # Determine alpha parameter for segmentation
-  # Alpha controls the significance level for change point detection.
-  # WGS data uses a stricter alpha (1e-5) to avoid over-segmentation due to
-  # higher density.
+  
   alpha <- 0.02
   if (reference$target_bed_file == "wgs") alpha <- 1e-5
-
-  # Prepare cancer genes and exons from reference
+  
   cancergenes <- if (!is.null(reference$cancergenes_clinseq)) {
     reference$cancergenes_clinseq
   } else {
     NULL
   }
-
+  
   cancerexons <- if (!is.null(reference$allexons)) {
     reference$allexons
   } else {
     NULL
   }
-
+  
   seg_res <- segment_data(targets,
-    alpha = alpha,
-    cancergenes = cancergenes,
-    cancerexons = cancerexons
+                          alpha = alpha,
+                          cancergenes = cancergenes,
+                          cancerexons = cancerexons
   )
   targets <- seg_res$targets
   segments <- seg_res$segments
-
-  # Merge back filtered bins (matching original script line 852)
-  # Segmentation may filter out some bins (e.g., those with missing data).
-  # We merge back with 'alltargets' to ensure the final output contains all
-  # original bins, preserving the complete genomic structure.
+  
+  # Merge back filtered bins
   common_cols <- intersect(names(alltargets), names(targets))
   targets <- merge(alltargets, targets, by = common_cols, all = TRUE)
   targets <- targets[order(bin)]
-
-  # Determine sample name for output
-  sample_name <- basename(bam_file)
-  sample_name <- sub("\\.counts\\.RDS$", "", sample_name, ignore.case = TRUE)
-  sample_name <- sub("\\.bam$", "", sample_name, ignore.case = TRUE)
-
-  # Add smooth_log2 for plotting
+  
   targets[, smooth_log2 := stats::runmed(log2, k = 7), by = chromosome]
+  
+  return(list(targets = targets, segments = segments))
+}
 
-  # 9. Compute GIS -----------------------------------------------------------
-  # Compute GIS (only if SNPs are present)
-  gis_table <- NULL
-  if (!is.null(snp_table)) {
-    message("Computing GIS...")
-    genome_version <- if (!is.null(reference$genome)) reference$genome else "hg19"
-    gis_table <- compute_gis_table(targets, snp_table, genome = genome_version)
-
-    # Map MAF to targets for plotting (plot_gis_score requires targets$maf)
-    # Filter SNPs to valid allele ratio range
-    snps_sub <- snp_table[allele_ratio > .02 & allele_ratio < .98]
-    snps_sub[, maf := 0.5 + abs(allele_ratio - 0.5)]
-
-    # Create GRanges
-    targetranges <- GenomicRanges::makeGRangesFromDataFrame(targets,
-      seqnames.field = "chromosome",
-      start.field = "start",
-      end.field = "end",
-      ignore.strand = TRUE
-    )
-    snpranges <- GenomicRanges::makeGRangesFromDataFrame(snps_sub,
-      seqnames.field = "chromosome",
-      start.field = "start",
-      end.field = "end",
-      ignore.strand = TRUE
-    )
-
-    # Overlap
-    hits <- GenomicRanges::findOverlaps(snpranges, targetranges)
-
-    # Assign (if multiple SNPs map to one bin, this takes the last one, or random.
-    # ideally we would average, but matching gis.R logic for consistency)
+#' Compute GIS and Add MAF to Targets
+#'
+#' @param targets Targets data.table
+#' @param snp_table SNP data.table
+#' @param reference Reference object
+#' @return List with gis_table and updated targets
+#' @keywords internal
+compute_gis_and_maf <- function(targets, snp_table, reference) {
+  if (is.null(snp_table)) {
     targets[, maf := as.numeric(NA)]
-    targets[S4Vectors::subjectHits(hits), maf := snps_sub[S4Vectors::queryHits(hits)]$maf]
-  } else {
-    message("Skipping GIS (no SNPs)...")
-    targets[, maf := as.numeric(NA)] # Initialize NA for consistency
+    return(list(gis_table = NULL, targets = targets))
   }
+  
+  message("Computing GIS...")
+  genome_version <- if (!is.null(reference$genome)) reference$genome else "hg19"
+  gis_table <- compute_gis_table(targets, snp_table, genome = genome_version)
+  
+  # Map MAF to targets
+  snps_sub <- snp_table[allele_ratio > .02 & allele_ratio < .98]
+  snps_sub[, maf := 0.5 + abs(allele_ratio - 0.5)]
+  
+  targetranges <- GenomicRanges::makeGRangesFromDataFrame(targets,
+                                                          seqnames.field = "chromosome",
+                                                          start.field = "start",
+                                                          end.field = "end",
+                                                          ignore.strand = TRUE
+  )
+  snpranges <- GenomicRanges::makeGRangesFromDataFrame(snps_sub,
+                                                       seqnames.field = "chromosome",
+                                                       start.field = "start",
+                                                       end.field = "end",
+                                                       ignore.strand = TRUE
+  )
+  
+  hits <- GenomicRanges::findOverlaps(snpranges, targetranges)
+  
+  targets[, maf := as.numeric(NA)]
+  targets[S4Vectors::subjectHits(hits), maf := snps_sub[S4Vectors::queryHits(hits)]$maf]
+  
+  return(list(gis_table = gis_table, targets = targets))
+}
 
-
-  # 9b. Process Somatic VCF ----------------------------------------------------
-  somatic <- NULL
-  # 9.5 Process Somatic VCF --------------------------------------------------
-  somatic <- NULL
-  if (!is.null(somatic_vcf)) {
-      # Determine genome version: Argument > Reference > Default
-      use_genome <- if (!is.null(genome)) genome else if (!is.null(reference$genome)) reference$genome else "hg19"
-      somatic <- process_somatic_vcf(somatic_vcf, reference, genome = use_genome)
-  }
-
-  # 10. Plot -----------------------------------------------------------------
+#' Generate and Save Plots
+#'
+#' @param targets Targets data.table
+#' @param segments Segments data.table
+#' @param reference Reference object
+#' @param output_dir Output directory
+#' @param sample_name Sample name
+#' @param snp_table SNP table
+#' @param gis_table GIS table
+#' @param somatic Somatic variants table
+#' @keywords internal
+generate_plots <- function(targets, segments, reference, output_dir, 
+                           sample_name, snp_table, gis_table, somatic) {
   message("Plotting...")
-
-  # Ensure targets are fully annotated before plotting (label, selected_genes)
+  
   annotate_targets(targets)
-
+  
   plot_file <- file.path(output_dir, paste0(sample_name, ".png"))
   plot_results(targets, segments,
-    reference = reference,
-    output_file = plot_file, title = sample_name,
-    snp_table = snp_table,
-    gis_table = gis_table,
-    somatic_table = somatic
+               reference = reference,
+               output_file = plot_file, title = sample_name,
+               snp_table = snp_table,
+               gis_table = gis_table,
+               somatic_table = somatic
   )
-
-  # Plot GIS separately if available
+  
   if (!is.null(gis_table)) {
     gis_plot_file <- file.path(output_dir, paste0(sample_name, ".gis.png"))
     tryCatch(
@@ -395,33 +379,45 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
       }
     )
   }
+}
 
-  # 11. Save Results ---------------------------------------------------------
+#' Save Analysis Results
+#'
+#' @param targets Targets data.table
+#' @param segments Segments data.table
+#' @param snp_table SNP table
+#' @param gis_table GIS table
+#' @param output_dir Output directory
+#' @param sample_name Sample name
+#' @param bam_file BAM file path
+#' @param reference_file Reference file path
+#' @param snp_vcf SNP VCF path
+#' @keywords internal
+save_analysis_results <- function(targets, segments, snp_table, gis_table,
+                                  output_dir, sample_name, bam_file,
+                                  reference_file, snp_vcf) {
   message("Saving results...")
-
+  
   # Main CSV file
   data.table::fwrite(targets, file.path(output_dir, paste0(
-    sample_name,
-    ".jumble.csv"
+    sample_name, ".jumble.csv"
   )), sep = ",")
-
-  # Save SNP table if present
+  
+  # Save SNP table
   if (!is.null(snp_table)) {
     snp_output_file <- file.path(output_dir, paste0(
-      sample_name,
-      ".jumble_snps.csv"
+      sample_name, ".jumble_snps.csv"
     ))
     data.table::fwrite(snp_table, snp_output_file, sep = ",")
   }
-
-  # Estimate Contamination
+  
+  # QC metrics
   contamination <- if (!is.null(snp_table)) {
     estimate_contamination(snp_table)
   } else {
     NA_real_
   }
-
-  # Compute and save QC metrics
+  
   qc_metrics <- compute_qc_metrics(
     targets = targets,
     bam_file = bam_file,
@@ -430,19 +426,26 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
     sample_name = sample_name,
     contamination = contamination
   )
-
+  
   qc_output_file <- file.path(output_dir, paste0(sample_name, ".qc.csv"))
   write_qc_metrics(qc_metrics, qc_output_file)
-
-  # Save GIS Table
+  
+  # Save GIS table
   if (!is.null(gis_table)) {
     gis_output_file <- file.path(output_dir, paste0(sample_name, ".jumble_gis.csv"))
     data.table::fwrite(gis_table, gis_output_file, sep = ",")
   }
+}
 
-
-  # Export CNR (copy number ratios)
-  # Format: chromosome, start, end, gene, depth, log2, weight, gc, count, type
+#' Export Analysis Files (CNR, CNS, SEG)
+#'
+#' @param targets Targets data.table
+#' @param segments Segments data.table
+#' @param output_dir Output directory
+#' @param sample_name Sample name
+#' @keywords internal
+export_analysis_files <- function(targets, segments, output_dir, sample_name) {
+  # Export CNR
   cnr <- targets[!is.na(log2), .(
     chromosome = as.character(chromosome),
     start, end, gene,
@@ -453,18 +456,16 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   )]
   cnr[gene == "", gene := "-"]
   data.table::fwrite(cnr, file.path(output_dir, paste0(sample_name, ".cnr")),
-    sep = "\t"
+                     sep = "\t"
   )
-
-  # Export CNS (copy number segments)
-  # Format: chromosome, start, end, gene, log2, depth, probes, relevance
+  
+  # Export CNS
   if (nrow(segments) > 0) {
-    # Add nbrOfLoci (number of bins in segment)
     segments[, nbrOfLoci := as.integer(NA)]
     for (i in seq_len(nrow(segments))) {
       segments$nbrOfLoci[i] <- sum(targets$segment == i, na.rm = TRUE)
     }
-
+    
     cns <- segments[, .(
       chromosome,
       start = start_pos,
@@ -476,12 +477,11 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
       relevance = ifelse(is.na(relevance), "", relevance)
     )]
     data.table::fwrite(cns, file.path(output_dir, paste0(sample_name, ".cns")),
-      sep = "\t"
+                       sep = "\t"
     )
   }
-
-  # Export SEG (DNAcopy format)
-  # Format: ID, chrom, loc.start, loc.end, num.mark, seg.mean, C
+  
+  # Export SEG
   if (nrow(segments) > 0) {
     seg <- segments[, .(
       ID = sample_name,
@@ -492,16 +492,114 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
       seg.mean = mean,
       C = as.numeric(NA)
     )]
-    # Convert X/Y to numeric for DNAcopy
     seg[, chrom := stringr::str_replace(chrom, "Y", "24")]
     seg[, chrom := stringr::str_replace(chrom, "X", "23")]
     seg[, chrom := as.numeric(chrom)]
     data.table::fwrite(seg, file.path(output_dir, paste0(
-      sample_name,
-      "_dnacopy.seg"
+      sample_name, "_dnacopy.seg"
     )), sep = "\t")
   }
+}
 
+#' Run Jumble Analysis
+#'
+#' Runs the complete Jumble analysis pipeline on a query sample.
+#'
+#' @param bam_file Path to the input BAM file.
+#' @param reference_file Path to the reference RDS file.
+#' @param output_dir Directory to save results.
+#' @param snp_vcf Optional path to a VCF file with SNPs.
+#' @param somatic_vcf Optional path to a VCF file with somatic variants.
+#' @param cores Number of cores (currently unused).
+#' @param genome Genome version.
+#' @param ... Additional arguments.
+#' @return A list containing results (targets, segments, etc.).
+#' @importFrom data.table fread fwrite
+#' @importFrom ggplot2 ggsave
+#' @export
+run_jumble <- function(bam_file, reference_file, output_dir = ".",
+                       snp_vcf = NULL, somatic_vcf = NULL, cores = 1, 
+                       genome = NULL, ...) {
+  if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  
+  # 1. Load Reference
+  reference <- load_reference_data(reference_file)
+  
+  # 2. Reference PCA
+  message("Computing reference PCA...")
+  ref_pca <- compute_reference_pca(reference)
+  
+  # 3. Load or Generate Counts
+  message("Generating counts for query sample...")
+  counts <- load_or_generate_counts(bam_file, reference, output_dir)
+  
+  # 4. Prepare Targets
+  targets <- prepare_targets(reference, counts, bam_file)
+  
+  # 5. Add Annotations
+  targets <- add_gene_annotations(targets, reference)
+  targets <- add_exon_annotations(targets, reference)
+  targets <- define_backbone(targets, reference)
+  
+  # Save all targets before processing
+  alltargets <- data.table::copy(targets)
+  
+  # 6. Process SNPs
+  snp_table <- NULL
+  sample_name <- basename(bam_file)
+  if (!is.null(snp_vcf) && file.exists(snp_vcf)) {
+    message("Processing SNPs from VCF...")
+    snp_table <- process_snps(snp_vcf, targets, sample_name = sample_name)
+  }
+  
+  # 7. Normalize
+  message("Normalizing...")
+  targets <- normalize_sample(targets, ref_pca)
+  
+  # Check if WGS
+  is_wgs <- FALSE
+  if (!is.null(reference$target_bed_file)) {
+    if (grepl("wgs", reference$target_bed_file, ignore.case = TRUE)) {
+      is_wgs <- TRUE
+    }
+  }
+  
+  # Apply X chromosome correction
+  targets <- apply_x_chromosome_correction(targets, is_wgs)
+  
+  # 8. Segment
+  seg_result <- perform_segmentation(targets, reference, alltargets)
+  targets <- seg_result$targets
+  segments <- seg_result$segments
+  
+  # Determine sample name
+  sample_name <- basename(bam_file)
+  sample_name <- sub("\\.counts\\.RDS$", "", sample_name, ignore.case = TRUE)
+  sample_name <- sub("\\.bam$", "", sample_name, ignore.case = TRUE)
+  
+  # 9. Compute GIS
+  gis_result <- compute_gis_and_maf(targets, snp_table, reference)
+  gis_table <- gis_result$gis_table
+  targets <- gis_result$targets
+  
+  # 9b. Process Somatic VCF
+  somatic <- NULL
+  if (!is.null(somatic_vcf)) {
+    use_genome <- if (!is.null(genome)) genome else if (!is.null(reference$genome)) reference$genome else "hg19"
+    somatic <- process_somatic_vcf(somatic_vcf, reference, genome = use_genome)
+  }
+  
+  # 10. Plot
+  generate_plots(targets, segments, reference, output_dir, sample_name,
+                 snp_table, gis_table, somatic)
+  
+  # 11. Save Results
+  save_analysis_results(targets, segments, snp_table, gis_table,
+                        output_dir, sample_name, bam_file,
+                        reference_file, snp_vcf)
+  
+  export_analysis_files(targets, segments, output_dir, sample_name)
+  
   message("Done.")
   invisible(list(targets = targets, segments = segments))
 }
