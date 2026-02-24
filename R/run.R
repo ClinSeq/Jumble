@@ -539,7 +539,7 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   # 5. Add Annotations
   targets <- add_gene_annotations(targets, reference)
   targets <- add_exon_annotations(targets, reference)
-  targets <- define_backbone(targets, reference)
+  targets <- define_backbone(targets)
   
   # Save all targets before processing
   alltargets <- data.table::copy(targets)

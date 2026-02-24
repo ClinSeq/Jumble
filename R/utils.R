@@ -36,42 +36,38 @@ detect_genome <- function(bam_file) {
 
 #' Define Backbone Bins
 #'
-#' Identifies bins to be used as backbone for normalization.
-#' Uses the variance across the reference set to select stable bins.
+#' Identifies bins to be used as backbone for normalization regression training.
+#' All autosomal bins are included by default. Densely-targeted genes (BRCA2,
+#' PTEN) are capped to a maximum number of backbone bins to prevent their
+#' gene bodies from dominating the regression fit when they harbour CNAs.
 #'
-#' @param targets Data.table containing bin information.
-#' @param reference Reference object containing 'mat' and 'bins'.
+#' @param targets Data.table containing bin information with 'chromosome',
+#'   'bin', and optionally 'gene' columns.
 #' @return Targets with 'is_backbone' column.
 #' @importFrom data.table copy
-#' @importFrom stats sd quantile
 #' @export
-define_backbone <- function(targets, reference = NULL) {
+define_backbone <- function(targets) {
   # 1. Default Backbone ------------------------------------------------------
-  # Default: autosomes are backbone candidates
+  # All autosomes are backbone candidates
   targets[, is_backbone := chromosome %in% c(as.character(1:22), 1:22)]
 
-  # 2. Refine with Variance --------------------------------------------------
-  # If reference is provided, use variance to refine backbone
-  if (!is.null(reference) && !is.null(reference$mat) &&
-    !is.null(reference$bins)) {
-    # Calculate SD for each bin in reference
-    mat <- reference$mat
+  # 2. Cap Dense Genes -------------------------------------------------------
+  # Restrict the contribution of densely-targeted genes to prevent them from
+  # dominating the regression training set. Hard-coded for BRCA2 and PTEN as
+  # per the published Jumble method.
+  max_in_b <- 10
+  genes_to_cap <- c("BRCA2", "PTEN")
 
-    # Ensure mat rows match reference$bins
-    if (nrow(mat) == length(reference$bins)) {
-      sds <- apply(mat, 1, sd, na.rm = TRUE)
-
-      # Select bins with lowest 50% variance
-      # Note: This assumes 'mat' rows correspond to 'reference$bins' in order.
-      # And 'reference$bins' are the bin IDs.
-
-      cutoff <- quantile(sds, 0.5, na.rm = TRUE)
-      backbone_bins <- reference$bins[sds < cutoff]
-
-      # Update is_backbone
-      # Only consider bins that are ALREADY autosomes (from above) AND in low
-      # variance set
-      targets[, is_backbone := is_backbone & (bin %in% backbone_bins)]
+  if ("gene" %in% names(targets) && any(targets$gene != "")) {
+    set.seed(25)
+    for (g in genes_to_cap) {
+      genebins <- targets[gene == g]$bin
+      n <- length(genebins)
+      if (n > max_in_b) {
+        targets[bin %in% genebins, is_backbone := FALSE]
+        genebins <- sample(genebins, max_in_b, replace = FALSE)
+        targets[bin %in% genebins, is_backbone := TRUE]
+      }
     }
   }
 

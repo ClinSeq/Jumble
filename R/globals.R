@@ -6,5 +6,5 @@ utils::globalVariables(c(
   "allele_ratio", "allele_ratio_use", "allele_ratio_corrected2", "RD", "AD",
   "DP", "maf", "refmedian", "refmedian_short", "xmedian", "xmedian_short",
   "ymedian", "male", "nonPA", "corrected_lr", "i.corrected_lr", "V1",
-  "is_tiled", "start_pos", "end_pos", "sample"
+  "is_tiled", "start_pos", "end_pos", "sample", "gene"
 ))
