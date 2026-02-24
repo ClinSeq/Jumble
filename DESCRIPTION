@@ -34,7 +34,9 @@ Imports:
     GenomeInfoDb,
     SummarizedExperiment,
     S4Vectors,
-    ggrepel
+    ggrepel,
+    IRanges,
+    httr
 Suggests: 
     BSgenome.Hsapiens.UCSC.hg38,
     testthat,

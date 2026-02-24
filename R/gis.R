@@ -40,7 +40,6 @@ gis_model <- function(feats = NULL) {
 #' @importFrom data.table data.table copy as.data.table setnames := rbindlist
 #' @importFrom GenomicRanges makeGRangesFromDataFrame findOverlaps
 #' @importFrom stats median quantile runmed
-#' @importFrom methods is
 #' @importFrom stringr str_detect
 #' @export
 compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, by = 0.01), genome = "hg19") {

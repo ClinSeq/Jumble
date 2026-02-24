@@ -13,8 +13,6 @@ generate_counts(bam_file, target_bed = NULL, wgs_bin_size = 10000)
 mode is used.}
 
 \item{wgs_bin_size}{Bin size for WGS mode (default: 10000).}
-
-\item{format}{Output format. Currently returns a list object.}
 }
 \value{
 A list containing counts, ranges, and metadata.

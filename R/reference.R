@@ -1,3 +1,72 @@
+#' Get Ensembl Mart Setup
+#' @keywords internal
+get_ensembl_mart <- function(genome, mirror = NULL) {
+  if (requireNamespace("httr", quietly = TRUE)) {
+    httr::set_config(httr::config(timeout = 3600))
+  }
+  if (genome == "hg19") {
+    biomaRt::useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", GRCh = 37, mirror = mirror)
+  } else if (genome == "hg38") {
+    biomaRt::useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", mirror = mirror)
+  } else {
+    stop("Unsupported genome: ", genome)
+  }
+}
+
+#' Fetch Ensembl Data (Genes or Exons)
+#' @keywords internal
+fetch_ensembl_data <- function(mart, genome, attributes, type = "genes") {
+  chromosomes <- c(as.character(1:22), "X", "Y")
+  
+  if (genome == "hg19") {
+    tryCatch({
+      df <- biomaRt::getBM(attributes = attributes, mart = mart)
+      as.data.table(df)
+    }, error = function(e) {
+      warning("Bulk fetch failed for ", type, ": ", e$message)
+      data.table::data.table()
+    })
+  } else {
+    message("Iterating chromosomes for stability...")
+    res_list <- list()
+    for (chrom in chromosomes) {
+      tryCatch({
+        chr_data <- biomaRt::getBM(attributes = attributes, filters = "chromosome_name", values = chrom, mart = mart)
+        if (nrow(chr_data) > 0) res_list[[chrom]] <- as.data.table(chr_data)
+      }, error = function(e) warning("Failed to fetch ", type, " for chr ", chrom))
+    }
+    data.table::rbindlist(res_list, fill = TRUE)
+  }
+}
+
+#' Process Local Cancer Genes
+#' @keywords internal
+process_cancer_genes <- function(allgenes) {
+  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "Jumble")
+  if (cgc_path == "") cgc_path <- "inst/extdata/cancer_genes.csv"
+  
+  if (!file.exists(cgc_path)) {
+    warning("cancer_genes.csv not found. Returning empty table.")
+    return(data.table(hugo_symbol = character(), ensembl_gene_id_version = character(), ANNOT = character(), chromosome = character(), start = integer(), end = integer()))
+  }
+  
+  cgenes <- fread(cgc_path)
+  if (!all(c("hugo_symbol", "alteration") %in% names(cgenes))) return(data.table())
+  
+  cgenes[, ANNOT := "AMBI"]
+  cgenes[alteration == "amp", ANNOT := "ONCO"]
+  cgenes[alteration == "del", ANNOT := "TSG"]
+  
+  mapping <- unique(allgenes[, .(`Gene name`, `Gene stable ID`, `Chromosome/scaffold name`, `Gene start (bp)`, `Gene end (bp)`)])
+  cgenes <- merge(cgenes, mapping, by.x = "hugo_symbol", by.y = "Gene name", all.x = FALSE)
+  
+  setnames(cgenes, 
+           old = c("Gene stable ID", "Chromosome/scaffold name", "Gene start (bp)", "Gene end (bp)"),
+           new = c("ensembl_gene_id_version", "chromosome", "start", "end"))
+  
+  cgenes[, .(hugo_symbol, ensembl_gene_id_version, ANNOT, alteration, chromosome, start, end)]
+}
+
 #' Generate Gene Annotation
 #'
 #' Fetches gene and exon information from Ensembl via biomaRt and integrates with
@@ -12,210 +81,101 @@
 #' @importFrom httr set_config config timeout
 #' @export
 generate_gene_annotation <- function(genome = "hg19", mirror = NULL) {
-  # Increase timeout to 10 minutes
-  if (requireNamespace("httr", quietly = TRUE)) {
-    httr::set_config(httr::config(timeout = 3600))
-  }
-  # 1. Select Dataset --------------------------------------------------------
-  if (genome == "hg19") {
-    mart <- useEnsembl(
-      biomart = "ensembl", dataset = "hsapiens_gene_ensembl",
-      GRCh = 37, mirror = mirror
-    )
-  } else if (genome == "hg38") {
-    mart <- useEnsembl(biomart = "ensembl", dataset = "hsapiens_gene_ensembl", mirror = mirror)
-  } else {
-    stop("Unsupported genome: ", genome)
-  }
-
+  mart <- get_ensembl_mart(genome, mirror)
   chromosomes <- c(as.character(1:22), "X", "Y")
-
-  # 2. Fetch Genes -----------------------------------------------------------
-  # Note: 'external_gene_name' is the current attribute for symbol, formerly
-  # 'hgnc_symbol' or 'gene_name'
-  # 'ensembl_gene_id' is stable ID
-  attributes_genes <- c(
-    "ensembl_gene_id", "external_gene_name",
-    "chromosome_name", "start_position", "end_position", "gene_biotype"
-  )
-
+  
+  # Fetch and format genes
+  attr_genes <- c("ensembl_gene_id", "external_gene_name", "chromosome_name", "start_position", "end_position", "gene_biotype")
   message("Fetching gene data from Ensembl...")
-  if (genome == "hg19") {
-      # Bulk fetch for hg19 (historically works fine and is faster)
-      tryCatch({
-          allgenes_df <- getBM(attributes = attributes_genes, mart = mart)
-          allgenes <- as.data.table(allgenes_df)
-      }, error = function(e) {
-          warning("Bulk fetch failed, falling back to iterative: ", e$message)
-          # Fallback logic could be added here, but for now just fail/warn
-          allgenes <- data.table() 
-      })
+  allgenes <- fetch_ensembl_data(mart, genome, attr_genes, "genes")
+  allgenes <- allgenes[chromosome_name %in% chromosomes & gene_biotype == "protein_coding"]
+  setnames(allgenes, old = attr_genes[1:5], new = c("Gene stable ID", "Gene name", "Chromosome/scaffold name", "Gene start (bp)", "Gene end (bp)"))
+  
+  # Fetch and format exons
+  attr_exons <- c("ensembl_gene_id", "external_gene_name", "chromosome_name", "exon_chrom_start", "exon_chrom_end", "rank")
+  message("Fetching exon data from Ensembl...")
+  allexons <- fetch_ensembl_data(mart, genome, attr_exons, "exons")
+  allexons <- allexons[chromosome_name %in% chromosomes & ensembl_gene_id %in% allgenes$`Gene stable ID`]
+  setnames(allexons, old = attr_exons, new = c("Gene stable ID", "Gene name", "Chromosome/scaffold name", "Exon region start (bp)", "Exon region end (bp)", "Exon rank in transcript"))
+  
+  # Process cancer genes
+  cancergenes <- process_cancer_genes(allgenes)
+  
+  list(cancergenes_clinseq = cancergenes, allgenes = allgenes, allexons = allexons)
+}
+
+
+#' Load Count Files
+#' @keywords internal
+load_count_files <- function(count_files) {
+  allcounts <- list()
+  bed_files <- character(length(count_files))
+  detected_genomes <- character(length(count_files))
+  
+  for (i in seq_along(count_files)) {
+    counts <- readRDS(count_files[i])
+    if (is.null(counts$input_bam_file)) counts$input_bam_file <- count_files[i]
+    bed_files[i] <- if (!is.null(counts$target_bed_file)) basename(counts$target_bed_file) else "wgs"
+    detected_genomes[i] <- if (!is.null(counts$genome)) counts$genome else NA_character_
+    allcounts[[i]] <- counts
+  }
+  list(allcounts = allcounts, bed_files = bed_files, detected_genomes = detected_genomes)
+}
+
+#' Create Target Template & Order Data
+#' @keywords internal
+create_target_template <- function(counts1, is_wgs, allcounts) {
+  targets <- as.data.table(counts1$ranges)
+  targets[, `:=`(sample = "", is_target = TRUE, type = "target", is_tiled = FALSE, 
+                 chromosome = as.character(seqnames), mid = round((end + start) / 2), gene = "")]
+  
+  # Robust Sorting
+  chrom_levels <- c(as.character(1:22), "X", "Y")
+  targets[, clean_chr := gsub("chr", "", chromosome)] # Example simple clean
+  targets[, chr_factor := factor(clean_chr, levels = chrom_levels)]
+  
+  ordering <- order(targets$chr_factor, targets$start)
+  targets <- targets[ordering]
+  targets[, bin := 1:.N]
+  targets[, c("clean_chr", "chr_factor") := NULL]
+  
+  # Define Background
+  if (is_wgs) {
+    min_w <- min(targets$width)
+    targets[width != min_w, is_target := FALSE]
   } else {
-       # Iterative fetch for hg38 (prone to timeouts)
-       message("Iterating chromosomes for stability...")
-       allgenes_list <- list()
-       chromosomes <- c(as.character(1:22), "X", "Y")
-       for (chrom in chromosomes) {
-         message("  Fetching genes for chr ", chrom, "...")
-         tryCatch({
-            genes_chr <- getBM(attributes = attributes_genes, 
-                               filters = "chromosome_name", 
-                               values = chrom, 
-                               mart = mart)
-            if (nrow(genes_chr) > 0) {
-                allgenes_list[[chrom]] <- as.data.table(genes_chr)
-            }
-         }, error = function(e) warning("Failed to fetch genes for chr ", chrom))
-       }
-       allgenes <- rbindlist(allgenes_list, fill = TRUE)
+    targets[width > 100000, is_target := FALSE]
+  }
+  targets[is_target == FALSE, type := "background"]
+  
+  # Apply ordering to all counts
+  for (i in seq_along(allcounts)) {
+    if (!is.null(allcounts[[i]]$count)) allcounts[[i]]$count <- allcounts[[i]]$count[ordering]
+    if (!is.null(allcounts[[i]]$count_short)) allcounts[[i]]$count_short <- allcounts[[i]]$count_short[ordering]
+    allcounts[[i]]$ranges <- allcounts[[i]]$ranges[ordering]
   }
   
-  # Filter for standard chromosomes and protein coding
-  # (Already filtered by fetching specific chromosomes, but keeping safety check)
-  allgenes <- allgenes[chromosome_name %in% chromosomes]
-  allgenes <- allgenes[gene_biotype == "protein_coding"]
+  list(targets = targets, allcounts = allcounts)
+}
 
-  # Rename columns to match Jumble's internal naming convention
-  # Jumble expects specific column names for downstream processing.
-  # We map Ensembl attributes to these expected names:
-  # 'ensembl_gene_id' -> 'Gene stable ID'
-  # 'external_gene_name' -> 'Gene name'
-  # 'chromosome_name' -> 'Chromosome/scaffold name'
-  # 'start_position' -> 'Gene start (bp)'
-  # 'end_position' -> 'Gene end (bp)'
-  setnames(allgenes,
-    old = c(
-      "ensembl_gene_id", "external_gene_name", "chromosome_name",
-      "start_position", "end_position"
-    ),
-    new = c(
-      "Gene stable ID", "Gene name", "Chromosome/scaffold name",
-      "Gene start (bp)", "Gene end (bp)"
-    )
-  )
-
-  # 3. Fetch Exons -----------------------------------------------------------
-  attributes_exons <- c(
-    "ensembl_gene_id", "external_gene_name",
-    "chromosome_name", "exon_chrom_start", "exon_chrom_end", "rank"
-  )
-
-  message("Fetching exon data from Ensembl...")
+#' Calculate GC Content
+#' @keywords internal
+calculate_gc_content <- function(targets, ucsc_ranges, genome) {
+  GenomeInfoDb::seqlevelsStyle(ucsc_ranges) <- "UCSC"
+  
   if (genome == "hg19") {
-       tryCatch({
-          allexons_df <- getBM(attributes = attributes_exons, mart = mart)
-          allexons <- as.data.table(allexons_df)
-       }, error = function(e) {
-          warning("Bulk fetch failed: ", e$message)
-          allexons <- data.table()
-       })
+    bsgenome <- BSgenome.Hsapiens.UCSC.hg19::Hsapiens
+  } else if (genome == "hg38") {
+    if (!requireNamespace("BSgenome.Hsapiens.UCSC.hg38", quietly = TRUE)) stop("Install BSgenome.Hsapiens.UCSC.hg38")
+    bsgenome <- BSgenome.Hsapiens.UCSC.hg38::Hsapiens
   } else {
-      # Iterative fetch for hg38
-      message("Iterating chromosomes for stability...")
-      allexons_list <- list()
-      chromosomes <- c(as.character(1:22), "X", "Y") # Re-define just in case
-      for (chrom in chromosomes) {
-        message("  Fetching exons for chr ", chrom, "...")
-        tryCatch({
-           exons_chr <- getBM(attributes = attributes_exons,
-                              filters = "chromosome_name",
-                              values = chrom,
-                              mart = mart)
-           if (nrow(exons_chr) > 0) {
-               allexons_list[[chrom]] <- as.data.table(exons_chr)
-           }
-        }, error = function(e) warning("Failed to fetch exons for chr ", chrom))
-      }
-      allexons <- rbindlist(allexons_list, fill = TRUE)
+    stop("Unsupported genome for GC: ", genome)
   }
-
-  # Filter
-  allexons <- allexons[chromosome_name %in% chromosomes]
-  allexons <- allexons[ensembl_gene_id %in% allgenes$`Gene stable ID`]
-
-  # Rename
-  setnames(allexons,
-    old = c(
-      "ensembl_gene_id", "external_gene_name", "chromosome_name",
-      "exon_chrom_start", "exon_chrom_end", "rank"
-    ),
-    new = c(
-      "Gene stable ID", "Gene name", "Chromosome/scaffold name",
-      "Exon region start (bp)", "Exon region end (bp)",
-      "Exon rank in transcript"
-    )
-  )
-
-
-  # 4. Process Cancer Genes --------------------------------------------------
-  cgc_path <- system.file("extdata", "cancer_genes.csv",
-    package = "Jumble"
-  )
-  if (cgc_path == "") {
-    # Fallback for development/testing when package not installed
-    cgc_path <- "inst/extdata/cancer_genes.csv"
-  }
-
-  if (file.exists(cgc_path)) {
-    cancergenes <- fread(cgc_path)
-    
-    # Ensure expected columns
-    if (!all(c("hugo_symbol", "alteration") %in% names(cancergenes))) {
-         warning("Cancer genes CSV missing required columns. Using empty list.")
-         cancergenes <- data.table(
-             hugo_symbol = character(),
-             alteration = character(),
-             ANNOT = character(),
-             chromosome = character(),
-             start = integer(),
-             end = integer()
-         )
-    } else {
-        # Map Alteration to ANNOT and keep Alteration
-        cancergenes[, ANNOT := "AMBI"]
-        cancergenes[alteration == "amp", ANNOT := "ONCO"]
-        cancergenes[alteration == "del", ANNOT := "TSG"]
-    
-        # Map Ensembl ID and Coordinates
-        # Join with allgenes
-        mapping <- unique(allgenes[, .(
-          `Gene name`, `Gene stable ID`,
-          `Chromosome/scaffold name`, `Gene start (bp)`, `Gene end (bp)`
-        )])
-        
-        cancergenes <- merge(cancergenes, mapping,
-          by.x = "hugo_symbol",
-          by.y = "Gene name", all.x = FALSE
-        )
-    
-        setnames(cancergenes,
-          old = c(
-            "Gene stable ID", "Chromosome/scaffold name", "Gene start (bp)",
-            "Gene end (bp)"
-          ),
-          new = c("ensembl_gene_id_version", "chromosome", "start", "end")
-        )
-    
-        # Select columns - keep coordinates and alteration!
-        cancergenes <- cancergenes[, .(
-          hugo_symbol, ensembl_gene_id_version, ANNOT, alteration,
-          chromosome, start, end
-        )]
-    }
-  } else {
-    warning("Cancer genes file (cancer_genes.csv) not found. Returning empty cancer genes table.")
-    cancergenes <- data.table(
-      hugo_symbol = character(), ensembl_gene_id_version = character(),
-      ANNOT = character(), chromosome = character(), start = integer(),
-      end = integer()
-    )
-  }
-
-  return(list(
-    cancergenes_clinseq = cancergenes,
-    allgenes = allgenes,
-    allexons = allexons
-  ))
+  
+  seqs <- Biostrings::getSeq(bsgenome, ucsc_ranges)
+  gc_values <- Biostrings::letterFrequency(seqs, letters = "GC", as.prob = TRUE)[,1]
+  targets[is_target %in% c(TRUE, FALSE), gc := gc_values]
+  return(targets)
 }
 
 #' Build Reference Panel
@@ -236,198 +196,45 @@ generate_gene_annotation <- function(genome = "hg19", mirror = NULL) {
 #' @importFrom BSgenome.Hsapiens.UCSC.hg19 Hsapiens
 #' @importFrom stringr str_remove
 #' @export
-build_reference <- function(count_files, annotation_source = "biomart",
-                            genome = NULL, output_file = NULL, cores = 1, mirror = NULL) {
+build_reference <- function(count_files, annotation_source = "biomart", genome = NULL, output_file = NULL, cores = 1, mirror = NULL) {
   if (length(count_files) == 0) stop("No count files provided.")
   
-  # 1. Read Count Files ------------------------------------------------------
+  # 1. Load Data
   message("Reading count files...")
-  allcounts <- list()
-  ntargets <- numeric(length(count_files))
-  bed_files <- character(length(count_files))
-  detected_genomes <- character(length(count_files))
+  cf_data <- load_count_files(count_files)
   
-  for (i in seq_along(count_files)) {
-    counts <- readRDS(count_files[i])
-    if (is.null(counts$input_bam_file)) counts$input_bam_file <- count_files[i]
-    
-    ntargets[i] <- length(counts$count)
-    
-    bed <- counts$target_bed_file
-    if (!is.null(bed)) {
-      bed_files[i] <- basename(bed)
-    } else {
-      bed_files[i] <- "wgs"
-    }
-    
-    # Collect genome if present
-    if (!is.null(counts$genome)) {
-      detected_genomes[i] <- counts$genome
-    } else {
-      detected_genomes[i] <- NA_character_
-    }
-    
-    allcounts[[i]] <- counts
-  }
-  
-  # 2. Determine Genome ------------------------------------------------------
-  # 1. Argument takes precedence
-  # 2. Else check counts files
-  # 3. Default to hg19
-  
+  # 2. Determine Genome
+  unique_genomes <- unique(na.omit(cf_data$detected_genomes))
   if (is.null(genome)) {
-    unique_genomes <- unique(na.omit(detected_genomes))
-    
-    if (length(unique_genomes) == 1) {
-      genome <- unique_genomes
-      message("Detected genome from count files: ", genome)
-    } else if (length(unique_genomes) > 1) {
-      stop("Count files contain different reference genomes: ", 
-           paste(unique_genomes, collapse = ", "))
-    } else {
-      genome <- "hg19"
-      message("Genome not detected in count files, defaulting to: ", genome)
-    }
-  } else {
-    # Check if provided genome matches detected ones (warn only?)
-    unique_genomes <- unique(na.omit(detected_genomes))
-    if (length(unique_genomes) > 0 && !all(unique_genomes == genome)) {
-      warning("Provided genome ('", genome, 
-              "') differs from genome detected in count files ('", 
-              paste(unique_genomes, collapse = ", "), "')")
-    }
+    genome <- if (length(unique_genomes) == 1) unique_genomes else "hg19"
   }
-
-  # 3. Load Annotation -------------------------------------------------------
+  
+  # 3. Load Annotation
   if (annotation_source == "biomart") {
     annot <- generate_gene_annotation(genome = genome, mirror = mirror)
   } else if (file.exists(annotation_source) && grepl("\\.RDS$", annotation_source, ignore.case = TRUE)) {
-    message("Loading annotation from RDS: ", annotation_source)
     annot <- readRDS(annotation_source)
-  } else if (dir.exists(annotation_source)) {
-    # Legacy mode: read from folder
-    annot <- list(
-      cancergenes_clinseq = fread(file.path(
-        annotation_source,
-        "cancergenes.txt"
-      )),
-      allgenes = fread(file.path(annotation_source, "allgenes.txt")),
-      allexons = fread(file.path(annotation_source, "allexons.txt"))
-    )
   } else {
     stop("Invalid annotation source.")
   }
 
-  if (length(unique(ntargets)) > 1) {
-    stop("Number of bins differs between samples.")
-  }
-  if (length(unique(bed_files)) > 1) stop("BED file differs between samples.")
-
-  wgs <- (bed_files[1] == "wgs")
-
-  # 4. Make Targets Template -------------------------------------------------
-  counts1 <- allcounts[[1]]
-  targets <- as.data.table(counts1$ranges)
-
-  # Add metadata columns
-  targets[, `:=`(
-    sample = "",
-    is_target = TRUE,
-    type = "target",
-    is_tiled = FALSE,
-    chromosome = as.character(seqnames),
-    mid = round((end + start) / 2),
-    gene = ""
-  )]
-
-  # Robust Sorting: Ensure bins are ordered by chromosome (1..22, X, Y) and start position
-  # This fixes artifacts where bins might be out of order in input counts (e.g. chr21 bin inside chr1 block)
+  is_wgs <- (cf_data$bed_files[1] == "wgs")
   
-  # Create a factor for sorting standard chromosomes
-  chrom_levels <- c(as.character(1:22), "X", "Y")
-  # Use clean names for sorting factor
-  targets[, clean_chr := clean_chrom_names(chromosome)]
-  # Map non-standard to NA (they sort last)
-  targets[, chr_factor := factor(clean_chr, levels = chrom_levels)]
+  # 4. Create Template
+  template_data <- create_target_template(cf_data$allcounts[[1]], is_wgs, cf_data$allcounts)
+  targets <- template_data$targets
+  allcounts <- template_data$allcounts
   
-  # Calculate ordering
-  ordering <- order(targets$chr_factor, targets$start)
+  # 5. Calculate GC
+  message("Calculating GC content...")
+  targets <- calculate_gc_content(targets, allcounts[[1]]$ranges, genome)
   
-  # Apply ordering to targets
-  targets <- targets[ordering]
-  targets[, bin := 1:.N] # Re-assign sequential bin IDs
-  
-  # Cleanup temp columns
-  targets[, c("clean_chr", "chr_factor") := NULL]
-
-  # Apply ordering to all count files to maintain consistency
-  # And to counts1 which is used below
-  counts1$ranges <- counts1$ranges[ordering]
-  
-  for (i in seq_along(allcounts)) {
-       # Sort all relevant count vectors in the object
-       if (!is.null(allcounts[[i]]$count)) {
-           allcounts[[i]]$count <- allcounts[[i]]$count[ordering]
-       }
-       if (!is.null(allcounts[[i]]$count_short)) {
-           allcounts[[i]]$count_short <- allcounts[[i]]$count_short[ordering]
-       }
-       # Also ranges need to be sorted to match
-       allcounts[[i]]$ranges <- allcounts[[i]]$ranges[ordering]
-  }
-
-  # Identify background bins
-  if (wgs) {
-      # For WGS, assume standard bins. Any deviant width (e.g. ends of chroms) is background/ignored.
-      min_w <- min(targets$width)
-      targets[width != min_w, is_target := FALSE]
-  } else {
-      # For targeted panels, widths are variable (exons).
-      # However, we must distinguish large background bins (backbone) from targets.
-      # generate_counts uses bg_minsize = 300,000 for background bins.
-      # So we can safely assume anything larger than e.g. 100kb is background.
-      targets[, is_target := TRUE]
-      targets[width > 100000, is_target := FALSE]
-  }
-  
-  targets[is_target == FALSE, type := "background"]
-
-
-  # 5. GC and Mappability ----------------------------------------------------
-  message("Calculating GC content and Mappability...")
-  ucsc_ranges <- counts1$ranges
-  seqlevelsStyle(ucsc_ranges) <- "UCSC"
-
-  # Select Genome
-  if (genome == "hg19") {
-    bsgenome <- BSgenome.Hsapiens.UCSC.hg19::Hsapiens
-  } else if (genome == "hg38") {
-    if (!requireNamespace("BSgenome.Hsapiens.UCSC.hg38", quietly = TRUE)) {
-      stop("Package 'BSgenome.Hsapiens.UCSC.hg38' is required for hg38 support. Install with: BiocManager::install('BSgenome.Hsapiens.UCSC.hg38')")
-    }
-    bsgenome <- BSgenome.Hsapiens.UCSC.hg38::Hsapiens
-  } else {
-    stop("Unsupported genome for GC/Map calculation: ", genome)
-  }
-
-  # GC Content Calculation
-  # We calculate the GC content for each bin using the selected  # GC Content Calculation
-  # This is crucial for normalization, as coverage often correlates with GC
-  # content. Using Biostrings directly instead of Repitools.
-  message("Calculating GC content.")
-  targets[, gc := as.double(NA)]
-  target_ranges <- ucsc_ranges
-  seqs <- Biostrings::getSeq(bsgenome, target_ranges)
-  gc_values <- Biostrings::letterFrequency(seqs, letters = "GC", as.prob = TRUE)[,1]
-  targets[is_target %in% c(TRUE, FALSE)]$gc <- gc_values
-
-
-  # 6. Create Object ---------------------------------------------------------
+  # 6. Build and Save Object
   reference <- list(
-    target_bed_file = if (wgs) "wgs" else counts1$target_bed_file,
-    chromlength = counts1$chromlength,
-    ranges = counts1$ranges,
-    flag = counts1$flag,
+    target_bed_file = if (is_wgs) "wgs" else allcounts[[1]]$target_bed_file,
+    chromlength = allcounts[[1]]$chromlength,
+    ranges = allcounts[[1]]$ranges,
+    flag = allcounts[[1]]$flag,
     date = date(),
     samples = count_files,
     target_template = targets,
@@ -437,23 +244,13 @@ build_reference <- function(count_files, annotation_source = "biomart",
     cancergenes_clinseq = annot$cancergenes_clinseq,
     genome = genome
   )
-
+  
   if (is.null(output_file)) {
-    # Default naming reasoning: derived from target_bed_file or generic WGS name
-    name <- reference$target_bed_file
-    if (is.null(name) || name == "wgs") {
-      name <- "jumble.WGS"
-    }
-    # Remove path from name if present
-    name <- stringr::str_remove(name, ".*/")
-    # Also remove extension if present (e.g. .bed) to avoid doubling
-    name <- stringr::str_remove(name, "\\.[^.]+$")
-    
+    name <- stringr::str_remove(stringr::str_remove(reference$target_bed_file %||% "jumble.WGS", ".*/"), "\\.[^.]+$")
     output_file <- paste0(name, ".reference.RDS")
   }
   
   saveRDS(reference, output_file)
   message("Reference saved to ", output_file)
-
   invisible(reference)
 }

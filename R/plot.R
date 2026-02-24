@@ -1,4 +1,3 @@
-
 #' Annotate Targets for Plotting
 #'
 #' Adds 'label' and 'selected_genes' columns to targets.
@@ -46,67 +45,71 @@ annotate_targets <- function(targets) {
   }
 }
 
-#' Plot Jumble Results
+#' Setup Plot Theme and Colors
 #'
-#' Generates plots for Jumble analysis results matching original script.
-#'
-#' @param targets Normalized targets data.table (must have label, selected_genes).
-#' @param segments Segments data.table.
-#' @param reference Reference object (for chromlength).
-#' @param snp_table Optional SNP table.
-#' @param output_file Path to save the plot (PNG).
-#' @param title Plot title.
-#' @param gis_table Optional GIS results table.
-#' @param somatic_table Optional table of somatic mutations.
-#' @return The ggplot object (invisibly).
-#' @importFrom ggplot2 ggplot aes geom_point scale_fill_manual scale_y_log10 scale_x_log10 scale_x_continuous scale_y_continuous sec_axis theme element_blank element_line labs guides guide_legend geom_segment facet_wrap vars unit geom_text xlim xlab ylab theme_set theme_bw geom_line geom_hline geom_vline scale_fill_hue scale_color_hue coord_cartesian
-#' @importFrom ggrepel geom_label_repel
-#' @importFrom patchwork plot_layout plot_annotation
-#' @importFrom grDevices png dev.off
-#' @importFrom stats quantile
-#' @export
-plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
-                         output_file = NULL, title = "", gis_table = NULL, somatic_table = NULL) {
-  # 1. Setup & Theme ---------------------------------------------------------
-  # Set theme to match original script (line 68)
+#' @return List with theme settings and color values
+#' @keywords internal
+setup_plot_theme <- function() {
   ggplot2::theme_set(ggplot2::theme_bw())
-
-  # Define colors matching original
-  colorvalues <- c(
-    "background" = "#1010D0", "dense" = "#F8566D",
-    "exonic" = "#00BFA4", "sparse" = "#000000", "bin" = "#000000"
+  
+  list(
+    colorvalues = c(
+      "background" = "#1010D0", "dense" = "#F8566D",
+      "exonic" = "#00BFA4", "sparse" = "#000000", "bin" = "#000000"
+    ),
+    size = 1,
+    size_selected = 1.1,
+    pointcolor = "#000000",
+    alpha = 0.3
   )
+}
 
-  size <- 1
-  size_selected <- 1.1
-  pointcolor <- "#000000"
-  alpha <- 0.3
-
-  # 2. Prepare Data ----------------------------------------------------------
-  # Ensure targets are annotated (if not already)
-  annotate_targets(targets)
-
-  # Filter to standard chromosomes only
-  # This removes alternative contigs (1_KI...) which cause plotting artifacts
-  chrom_levels <- c(as.character(1:22), "X", "Y")
-  targets <- targets[chromosome %in% chrom_levels]
-
-  # 3. Plot Setup (Axes) -----------------------------------------------------
+#' Prepare Y-Axis Parameters
+#'
+#' Calculate y-axis limits and breaks for log2 plots
+#'
+#' @param targets data.table with smooth_log2 column
+#' @return List with ylims, ybreaks, yminorbreaks
+#' @keywords internal
+prepare_yaxis_params <- function(targets) {
   ylims <- c(
     min(0.4, min(2^targets[chromosome != "Y"]$smooth_log2, na.rm = TRUE)),
     max(3, max(2^targets$smooth_log2, na.rm = TRUE))
   )
-
+  
   ybreaks <- c(.5, .75, 1, 1.5, 2, 3, 4, 6, 8)
   ybreaks <- ybreaks[ybreaks >= ylims[1] & ybreaks <= ylims[2]]
   yminorbreaks <- c(1.25, 1.75)
+  
+  list(ylims = ylims, ybreaks = ybreaks, yminorbreaks = yminorbreaks)
+}
 
-  # Raw depth limits
-  limits <- c(1e1, 1e5)
-  limits_labels <- c("10", "30", "100", "300", "1k", "3k", "10k", "30k", "100k")
-  limits_breaks <- c(1e1, 3e1, 1e2, 3e2, 1e3, 3e3, 1e4, 3e4, 1e5)
+#' Prepare Depth (X-axis) Parameters
+#'
+#' Setup log-scale depth axis parameters
+#'
+#' @return List with limits, limits_labels, limits_breaks
+#' @keywords internal
+prepare_depth_axis <- function() {
+  list(
+    limits = c(1e1, 1e5),
+    limits_labels = c("10", "30", "100", "300", "1k", "3k", "10k", "30k", "100k"),
+    limits_breaks = c(1e1, 3e1, 1e2, 3e2, 1e3, 3e3, 1e4, 3e4, 1e5)
+  )
+}
 
-  # Chromosome positions (by genomic position)
+#' Prepare Chromosome Data
+#'
+#' Create chromosome position mappings for plotting
+#'
+#' @param targets data.table with chromosome and end columns
+#' @param reference Optional reference object with chromlength
+#' @return List with chroms and chroms_order data.tables
+#' @keywords internal
+prepare_chromosome_data <- function(targets, reference = NULL) {
+  chrom_levels <- c(as.character(1:22), "X", "Y")
+  
+  # Get chromosome lengths
   if (!is.null(reference) && !is.null(reference$chromlength)) {
     chroms <- data.table::data.table(
       chromosome = names(reference$chromlength),
@@ -115,16 +118,16 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
   } else {
     chroms <- targets[, .(length = max(end)), by = chromosome]
   }
-
+  
   chroms[, chromosome := clean_chrom_names(as.character(chromosome))]
-  chrom_levels <- c(as.character(1:22), "X", "Y")
   chroms <- chroms[match(chrom_levels, chromosome)]
   chroms <- chroms[!is.na(chromosome)]
-
-  # Cumulative positions for genomic plots
+  
+  # Calculate cumulative positions
   chroms[, start := as.double(0)]
   chroms[, stop := as.double(length)]
   chroms[, mid := as.double(round(length / 2))]
+  
   if (nrow(chroms) >= 2) {
     for (i in 2:nrow(chroms)) {
       chroms[i, start := chroms$stop[i - 1]]
@@ -132,21 +135,7 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
       chroms[i, mid := chroms$stop[i - 1] + round(length / 2)]
     }
   }
-
-  # Add genomic positions to targets
-  targets[, gpos := as.numeric(start)]
-  for (chr in unique(targets$chromosome)[-1]) {
-    targets[chromosome == chr, gpos := gpos + sum(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)]
-  }
-
-  # Add genomic positions to segments
-  segments[, gstart := as.double(start_pos)]
-  segments[, gstop := as.double(end_pos)]
-  for (chr in unique(segments$chromosome)[-1]) {
-    segments[chromosome == chr, gstart := gstart + sum(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)]
-    segments[chromosome == chr, gstop := gstop + sum(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)]
-  }
-
+  
   # Chromosome positions by order
   chroms_order <- data.table::data.table(
     chromosome = unique(targets$chromosome),
@@ -159,161 +148,268 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
     chroms_order$end[chr == chroms_order$chromosome] <- targets[chromosome == chr, max(bin)]
     chroms_order$mid[chr == chroms_order$chromosome] <- targets[chromosome == chr, mean(bin)]
   }
-
-  # Filter to standard chromosomes only
+  
   chroms_order <- chroms_order[chromosome %in% chrom_levels]
+  
+  list(chroms = chroms, chroms_order = chroms_order)
+}
 
-  # Prepare cancergenes_summary for labeling (one point per gene)
+#' Add Genomic Positions to Targets and Segments
+#'
+#' Calculate genomic coordinates across chromosomes
+#'
+#' @param targets data.table
+#' @param segments data.table
+#' @param chroms data.table with chromosome lengths
+#' @return List with modified targets and segments
+#' @keywords internal
+add_genomic_positions <- function(targets, segments, chroms) {
+  # Add genomic positions to targets
+  targets[, gpos := as.numeric(start)]
+  for (chr in unique(targets$chromosome)[-1]) {
+    chr_idx <- which(chroms$chromosome == chr)
+    if (length(chr_idx) > 0) {
+      offset <- sum(chroms[1:(chr_idx - 1)]$length)
+      targets[chromosome == chr, gpos := gpos + offset]
+    }
+  }
+  
+  # Add genomic positions to segments
+  segments[, gstart := as.double(start_pos)]
+  segments[, gstop := as.double(end_pos)]
+  for (chr in unique(segments$chromosome)[-1]) {
+    chr_idx <- which(chroms$chromosome == chr)
+    if (length(chr_idx) > 0) {
+      offset <- sum(chroms[1:(chr_idx - 1)]$length)
+      segments[chromosome == chr, gstart := gstart + offset]
+      segments[chromosome == chr, gstop := gstop + offset]
+    }
+  }
+  
+  list(targets = targets, segments = segments)
+}
+
+#' Prepare Cancer Gene Summary for Labeling
+#'
+#' Create one point per gene for plot annotations
+#'
+#' @param targets data.table with selected_genes
+#' @return data.table with summarized cancer genes
+#' @keywords internal
+prepare_cancergenes_summary <- function(targets) {
   cancergenes_summary <- targets[!is.na(selected_genes), .(
     bin = median(bin, na.rm = TRUE),
     gpos = median(gpos, na.rm = TRUE),
     count = median(count, na.rm = TRUE),
     log2 = median(smooth_log2, na.rm = TRUE)
   ), by = selected_genes]
-
+  
   if (nrow(cancergenes_summary) > 0) {
-    # Calculate median count for nudge logic
+    # Calculate median depth
     m_depth <- median(targets[type != "background" & chromosome %in% 1:22]$count, na.rm = TRUE)
-    if (is.na(m_depth)) m_depth <- 100 # Fallback
-
+    if (is.na(m_depth)) m_depth <- 100
+    
     cancergenes_summary[, nudge := 0.1]
-
-    # Apply nudge logic similar to frankenscript (in log units)
+    
+    # Apply nudge logic
     if (nrow(cancergenes_summary) >= 2) {
       cancergenes_summary[seq(2, .N, 2), nudge := -1]
     }
     cancergenes_summary[count < m_depth * 0.8, nudge := 1]
     cancergenes_summary[count > m_depth * 1.2, nudge := -1]
   }
+  
+  cancergenes_summary
+}
 
-  # Prepare Somatic Data for Plotting
-  somatic_plot <- NULL
+#' Prepare SNP Data for Plotting
+#'
+#' Filter and map SNP data to targets
+#'
+#' @param snp_table data.table with SNP data
+#' @param targets data.table to map SNPs to
+#' @return Modified targets with allele_ratio, DP, and maf columns
+#' @keywords internal
+prepare_snp_data <- function(snp_table, targets) {
+  # Prepare allele ratio column
+  snp_table[, allele_ratio_use := allele_ratio]
+  if (!is.null(snp_table$allele_ratio_corrected2)) {
+    snp_table[, allele_ratio_use := allele_ratio_corrected2]
+  }
+  
+  # Filter SNPs
+  snp_table <- snp_table[type != "other"][allele_ratio_use < .99][
+    allele_ratio_use > .01
+  ][RD > 2][AD > 2]
+  
+  median_dp <- median(snp_table$DP, na.rm = TRUE)
+  snp_table <- snp_table[DP > median_dp / 5][DP < median_dp * 10]
+  
+  # Map to targets
+  targets[, allele_ratio := as.double(NA)]
+  targets[, DP := as.double(NA)]
+  
+  idx <- match(targets$bin, snp_table$bin)
+  targets[
+    !is.na(idx),
+    `:=`(
+      allele_ratio = snp_table$allele_ratio_use[idx[!is.na(idx)]],
+      DP = snp_table$DP[idx[!is.na(idx)]]
+    )
+  ]
+  
+  # Calculate MAF and smooth
+  targets[, maf := abs(allele_ratio - .5) + .5]
+  targets[!is.na(maf), maf := stats::runmed(maf, 9)]
+  
+  targets
+}
+
+#' Prepare Somatic Data for Plotting
+#'
+#' Map somatic variants to targets and create labels
+#'
+#' @param somatic_table data.table with somatic variants
+#' @param targets data.table to map to
+#' @param reference Optional reference object with cancergenes
+#' @return List with somatic_plot and somatic_labels data.tables
+#' @keywords internal
+prepare_somatic_data <- function(somatic_table, targets, reference = NULL) {
+  if (is.null(somatic_table) || nrow(somatic_table) == 0) {
+    return(list(somatic_plot = NULL, somatic_labels = NULL))
+  }
+  
+  somatic_plot <- data.table::copy(somatic_table)
+  somatic_plot <- somatic_plot[!is.na(bin)]
+  
+  if (nrow(somatic_plot) == 0) {
+    return(list(somatic_plot = NULL, somatic_labels = NULL))
+  }
+  
+  # Map to targets
+  cols_needed <- c("bin", "gpos", "smooth_log2", "log2", "count")
+  cols_exist <- cols_needed %in% names(targets)
+  
+  if (!all(cols_exist)) {
+    warning("Targets missing columns for somatic mapping: ", 
+            paste(cols_needed[!cols_exist], collapse = ", "))
+    return(list(somatic_plot = NULL, somatic_labels = NULL))
+  }
+  
+  t_lookup <- targets[, cols_needed, with = FALSE]
+  data.table::setkey(t_lookup, bin)
+  data.table::setkey(somatic_plot, bin)
+  somatic_plot <- t_lookup[somatic_plot]
+  
+  # Prepare labels
   somatic_labels <- NULL
-  if (!is.null(somatic_table) && nrow(somatic_table) > 0) {
-    # We need to map bins to gpos/log2/count if not already present
-    # somatic_table has chromosome, start, AF, bin
-
-    # Copy to avoid modifying original by reference if it's used elsewhere
-    somatic_plot <- data.table::copy(somatic_table)
-
-    # Only keep somatic variants that fall into valid bins
-    somatic_plot <- somatic_plot[!is.na(bin)]
-
-    if (nrow(somatic_plot) > 0) {
-      # Match bins to targets
-      # targets should be keyed by bin or we assume unique bins
-      # Use character subsetting to avoid closure/function name conflicts
-      cols_needed <- c("bin", "gpos", "smooth_log2", "log2", "count")
-      # Ensure columns exist
-      cols_exist <- cols_needed %in% names(targets)
-      if (all(cols_exist)) {
-        t_lookup <- targets[, cols_needed, with = FALSE]
-        data.table::setkey(t_lookup, bin)
-        data.table::setkey(somatic_plot, bin)
-
-        # Left join somatic_plot with t_lookup
-        somatic_plot <- t_lookup[somatic_plot]
-        
-        # Prepare Somatic Labels (matching frankenscript logic)
-        somatic_labels <- NULL
-        cancergenes_list <- NULL
-        
-        if (!is.null(reference) && !is.null(reference$cancergenes_clinseq)) {
-            cancergenes_list <- reference$cancergenes_clinseq$gene
-        }
-        
-        if (is.null(cancergenes_list) && !is.null(targets$selected_genes)) {
-            cancergenes_list <- unique(na.omit(as.character(targets$selected_genes)))
-        }
+  cancergenes_list <- NULL
+  
+  if (!is.null(reference) && !is.null(reference$cancergenes_clinseq)) {
+    cancergenes_list <- reference$cancergenes_clinseq$gene
+  }
+  
+  if (is.null(cancergenes_list) && !is.null(targets$selected_genes)) {
+    cancergenes_list <- unique(na.omit(as.character(targets$selected_genes)))
+  }
+  
+  if (nrow(somatic_plot) > 0 && !is.null(cancergenes_list)) {
+    req_cols <- c("SYMBOL", "CANONICAL", "effect", "Consequence", 
+                  "Protein_position", "Amino_acids")
     
-        if (nrow(somatic_plot) > 0 && !is.null(cancergenes_list)) { 
-          req_cols <- c("SYMBOL", "CANONICAL", "effect", "Consequence", "Protein_position", "Amino_acids")
-          if (all(req_cols %in% names(somatic_plot))) {
-            
-            somatic_labels <- somatic_plot[SYMBOL %in% cancergenes_list & CANONICAL == "YES" & effect %in% c("hotspot", "high-impact")]
-            
-            if (nrow(somatic_labels) > 0) {
-              somatic_labels[, ppos := stringr::str_extract(Protein_position, "[0-9]*")]
-              somatic_labels[, aa := stringr::str_extract(Amino_acids, "[A-Z]$")]
-              somatic_labels[is.na(aa), aa := ""]
-              somatic_labels[Consequence == "stop_gained", aa := "*"]
-              somatic_labels[grepl("frameshift", Consequence), aa := "fs"]
-              somatic_labels[grepl("inframe", Consequence), aa := "if"]
-              somatic_labels[grepl("splice", Consequence), aa := "sp"]
-              
-              somatic_labels[, label := paste0(SYMBOL, ":", ppos, aa)]
-              somatic_labels[, nudge := 0.1]
-              somatic_labels[AF > 0.8, nudge := -0.1]
-            } else {
-                somatic_labels <- NULL
-            }
-          }
-        }
-
+    if (all(req_cols %in% names(somatic_plot))) {
+      somatic_labels <- somatic_plot[
+        SYMBOL %in% cancergenes_list & CANONICAL == "YES" & 
+          effect %in% c("hotspot", "high-impact")
+      ]
+      
+      if (nrow(somatic_labels) > 0) {
+        somatic_labels[, ppos := stringr::str_extract(Protein_position, "[0-9]*")]
+        somatic_labels[, aa := stringr::str_extract(Amino_acids, "[A-Z]$")]
+        somatic_labels[is.na(aa), aa := ""]
+        somatic_labels[Consequence == "stop_gained", aa := "*"]
+        somatic_labels[grepl("frameshift", Consequence), aa := "fs"]
+        somatic_labels[grepl("inframe", Consequence), aa := "if"]
+        somatic_labels[grepl("splice", Consequence), aa := "sp"]
+        
+        somatic_labels[, label := paste0(SYMBOL, ":", ppos, aa)]
+        somatic_labels[, nudge := 0.1]
+        somatic_labels[AF > 0.8, nudge := -0.1]
       } else {
-        warning("Targets missing columns for somatic mapping: ", paste(cols_needed[!cols_exist], collapse = ", "))
-        somatic_plot <- NULL
+        somatic_labels <- NULL
       }
-
-      # For AF plots: y = AF
-      # For Log2 plots: y = 2^log2
-      # For Grid plots: y = folded MAF = abs(AF - 0.5) + 0.5
     }
   }
+  
+  list(somatic_plot = somatic_plot, somatic_labels = somatic_labels)
+}
 
-  # Initialize plot list
-  p <- list()
-
-  # 5. Plot: GC vs Depth -----------------------------------------------------
-  # 1. GC vs Raw Depth (TOP LEFT)
-  # Filter count > 0 to avoid log10(0) warnings
-  p$gc_rawdepth <- ggplot(targets[count > 0]) +
+#' Create GC vs Raw Depth Plot
+#'
+#' @param targets data.table
+#' @param theme_params List from setup_plot_theme()
+#' @param axis_params List from prepare_depth_axis()
+#' @return ggplot object
+#' @keywords internal
+plot_gc_rawdepth <- function(targets, theme_params, axis_params) {
+  ggplot(targets[count > 0]) +
     xlab("Target GC content") +
     ylab("Fragments") +
     xlim(c(.16, .84)) +
-    # Layer 1: Background only (no selected genes)
     geom_point(
       mapping = aes(x = gc, y = count),
-      col = pointcolor, shape = 21, size = 1, alpha = alpha / 2
+      col = theme_params$pointcolor, shape = 21, size = 1, 
+      alpha = theme_params$alpha / 2
     ) +
     facet_wrap(facets = vars(label), nrow = 1) +
     theme(
-      panel.spacing = unit(0, "lines"), strip.background = element_blank(),
+      panel.spacing = unit(0, "lines"), 
+      strip.background = element_blank(),
       strip.text.x = element_blank()
     ) +
     geom_text(
       data = unique(targets[, .(label)])[label == "target", label := "sparse"],
-      mapping = aes(label = label, x = 0.16, y = Inf), hjust = 0, vjust = 1.5
+      mapping = aes(label = label, x = 0.16, y = Inf), 
+      hjust = 0, vjust = 1.5
     ) +
     scale_y_log10(
-      limits = limits, breaks = limits_breaks,
-      minor_breaks = yminorbreaks, labels = limits_labels
+      limits = axis_params$limits, 
+      breaks = axis_params$limits_breaks,
+      minor_breaks = axis_params$limits_breaks,
+      labels = axis_params$limits_labels
     )
+}
 
-  # 6. Plot: Order vs Depth --------------------------------------------------
-  # 2. Order vs Raw Depth (TOP RIGHT)
-  p$order_rawdepth <- ggplot(targets) +
+#' Create Order vs Raw Depth Plot
+#'
+#' @param targets data.table
+#' @param cancergenes_summary data.table
+#' @param chroms_order data.table
+#' @param theme_params List from setup_plot_theme()
+#' @param axis_params List from prepare_depth_axis()
+#' @return ggplot object
+#' @keywords internal
+plot_order_rawdepth <- function(targets, cancergenes_summary, chroms_order, 
+                                theme_params, axis_params) {
+  ggplot(targets) +
     xlab("Order of genomic position") +
     ylab("Fragments") +
-    # Layer 0: Vertical lines (behind points)
     geom_vline(
       data = cancergenes_summary,
       mapping = aes(xintercept = bin, color = selected_genes),
       alpha = 0.5, linewidth = 0.5, show.legend = FALSE
     ) +
-    # Layer 1: Background
     geom_point(
       data = targets[!is.na(label) & is.na(selected_genes) & count > 0],
       mapping = aes(x = bin, y = count),
-      fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
     ) +
-    # Layer 2: Selected
     geom_point(
       data = targets[!is.na(label) & !is.na(selected_genes) & count > 0],
       mapping = aes(x = bin, y = count, fill = selected_genes),
-      col = "black", shape = 21, size = size_selected, alpha = 0.8
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
     ) +
-    # Layer 3: Text labels (on top)
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
@@ -322,8 +418,10 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
     scale_y_log10(
-      limits = limits, breaks = limits_breaks,
-      minor_breaks = yminorbreaks, labels = limits_labels
+      limits = axis_params$limits,
+      breaks = axis_params$limits_breaks,
+      minor_breaks = axis_params$limits_breaks,
+      labels = axis_params$limits_labels
     ) +
     scale_x_continuous(
       breaks = chroms_order$mid, minor_breaks = chroms_order$start[-1],
@@ -338,31 +436,38 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
       axis.ticks = element_line(),
       plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
     )
+}
 
-  # 7. Plot: Position vs Depth -----------------------------------------------
-  # Genomic Position vs Raw Depth
-  p$pos_rawdepth <- ggplot(targets) +
+#' Create Position vs Raw Depth Plot
+#'
+#' @param targets data.table
+#' @param cancergenes_summary data.table
+#' @param chroms data.table
+#' @param theme_params List from setup_plot_theme()
+#' @param axis_params List from prepare_depth_axis()
+#' @return ggplot object
+#' @keywords internal
+plot_pos_rawdepth <- function(targets, cancergenes_summary, chroms, 
+                              theme_params, axis_params) {
+  ggplot(targets) +
     xlab("Genomic position") +
     ylab("Fragments") +
-    # Layer 0: Vertical lines
     geom_vline(
       data = cancergenes_summary,
       mapping = aes(xintercept = gpos, color = selected_genes),
       alpha = 0.5, linewidth = 0.5, show.legend = FALSE
     ) +
-    # Layer 1: Background
     geom_point(
       data = targets[!is.na(label) & is.na(selected_genes) & count > 0],
       mapping = aes(x = gpos, y = count),
-      fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
+      fill = "#606060", col = "#202020", shape = 21,
+      size = theme_params$size, alpha = theme_params$alpha
     ) +
-    # Layer 2: Selected
     geom_point(
       data = targets[!is.na(label) & !is.na(selected_genes) & count > 0],
       mapping = aes(x = gpos, y = count, fill = selected_genes),
-      col = "black", shape = 21, size = size_selected, alpha = 0.8
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
     ) +
-    # Layer 3: Labels
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
@@ -371,8 +476,10 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
     scale_y_log10(
-      limits = limits, breaks = limits_breaks,
-      minor_breaks = yminorbreaks, labels = limits_labels
+      limits = axis_params$limits,
+      breaks = axis_params$limits_breaks,
+      minor_breaks = axis_params$limits_breaks,
+      labels = axis_params$limits_labels
     ) +
     scale_x_continuous(
       breaks = chroms$mid, minor_breaks = chroms$start[-1],
@@ -387,57 +494,73 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
       axis.ticks = element_line(),
       plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
     )
+}
 
-  # 3. GC vs Log2 (MIDDLE LEFT)
-  # Updated to 2-layer coloring
-  # 7. Plot: GC vs Log2 ------------------------------------------------------
-  # 3. GC vs Log2 (MIDDLE LEFT)
-  p$gc_log2 <- ggplot(targets) +
+#' Create GC vs Log2 Plot
+#'
+#' @param targets data.table
+#' @param yaxis_params List from prepare_yaxis_params()
+#' @param theme_params List from setup_plot_theme()
+#' @return ggplot object
+#' @keywords internal
+plot_gc_log2 <- function(targets, yaxis_params, theme_params) {
+  ggplot(targets) +
     xlab("Target GC content") +
     ylab("Corrected depth") +
     xlim(c(.16, .84)) +
-    # Layer 1: Background only
     geom_point(
       mapping = aes(x = gc, y = 2^log2),
-      col = pointcolor, shape = 21, size = 1, alpha = alpha / 2
+      col = theme_params$pointcolor, shape = 21, size = 1, 
+      alpha = theme_params$alpha / 2
     ) +
     facet_wrap(facets = vars(label), nrow = 1) +
     theme(
-      panel.spacing = unit(0, "lines"), strip.background = element_blank(),
+      panel.spacing = unit(0, "lines"),
+      strip.background = element_blank(),
       strip.text.x = element_blank()
     ) +
-    scale_y_log10(limits = ylims, breaks = ybreaks, minor_breaks = yminorbreaks)
+    scale_y_log10(
+      limits = yaxis_params$ylims, 
+      breaks = yaxis_params$ybreaks, 
+      minor_breaks = yaxis_params$yminorbreaks
+    )
+}
 
-  # 8. Plot: Order vs Log2 ---------------------------------------------------
-  # 4. Order vs Log2 (MIDDLE RIGHT)
-  p$order_log2 <- ggplot(targets) +
+#' Create Order vs Log2 Plot
+#'
+#' @param targets data.table
+#' @param segments data.table
+#' @param cancergenes_summary data.table
+#' @param chroms_order data.table
+#' @param yaxis_params List from prepare_yaxis_params()
+#' @param theme_params List from setup_plot_theme()
+#' @return ggplot object
+#' @keywords internal
+plot_order_log2 <- function(targets, segments, cancergenes_summary, chroms_order,
+                            yaxis_params, theme_params) {
+  ggplot(targets) +
     xlab("Order of genomic position") +
     ylab("Corrected depth") +
-    # Layer 0: Vertical lines
     geom_vline(
       data = cancergenes_summary,
       mapping = aes(xintercept = bin, color = selected_genes),
       alpha = 0.5, linewidth = 0.5, show.legend = FALSE
     ) +
-    # Layer 1: Background
     geom_point(
       data = targets[!is.na(label) & is.na(selected_genes)],
       mapping = aes(x = bin, y = 2^log2),
-      fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
     ) +
-    # Layer 2: Selected
     geom_point(
       data = targets[!is.na(label) & !is.na(selected_genes)],
       mapping = aes(x = bin, y = 2^log2, fill = selected_genes),
-      col = "black", shape = 21, size = size_selected, alpha = 0.8
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
     ) +
-
-    # Layer 3: Segments
     geom_segment(
       data = segments, col = "green", linewidth = 1,
       mapping = aes(x = start, xend = end, y = 2^mean, yend = 2^mean)
     ) +
-    # Layer 4: Labels
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
@@ -445,7 +568,11 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
     ) +
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
-    scale_y_log10(limits = ylims, breaks = ybreaks, minor_breaks = yminorbreaks) +
+    scale_y_log10(
+      limits = yaxis_params$ylims, 
+      breaks = yaxis_params$ybreaks, 
+      minor_breaks = yaxis_params$yminorbreaks
+    ) +
     scale_x_continuous(
       breaks = chroms_order$mid, minor_breaks = chroms_order$start[-1],
       expand = c(.01, .01), labels = chroms_order$chromosome
@@ -459,38 +586,43 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
       axis.ticks = element_line(),
       plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
     )
+}
 
-
-  # 9. Plot: Position vs Log2 ------------------------------------------------
-  # 5. Genomic Position vs Log2 (BOTTOM - full width)
-  p$pos_log2 <- ggplot(targets) +
+#' Create Position vs Log2 Plot
+#'
+#' @param targets data.table
+#' @param segments data.table
+#' @param cancergenes_summary data.table
+#' @param chroms data.table
+#' @param yaxis_params List from prepare_yaxis_params()
+#' @param theme_params List from setup_plot_theme()
+#' @return ggplot object
+#' @keywords internal
+plot_pos_log2 <- function(targets, segments, cancergenes_summary, chroms,
+                          yaxis_params, theme_params) {
+  ggplot(targets) +
     xlab("Genomic position") +
     ylab("Corrected depth") +
-    # Layer 0: Vertical lines
     geom_vline(
       data = cancergenes_summary,
       mapping = aes(xintercept = gpos, color = selected_genes),
       alpha = 0.5, linewidth = 0.5, show.legend = FALSE
     ) +
-    # Layer 1: Background points (grey)
     geom_point(
       data = targets[!is.na(label) & is.na(selected_genes)],
       mapping = aes(x = gpos, y = 2^log2),
-      fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
+      fill = "#606060", col = "#202020", shape = 21,
+      size = theme_params$size, alpha = theme_params$alpha
     ) +
-    # Layer 2: Selected cancer genes (colored by gene)
     geom_point(
       data = targets[!is.na(selected_genes)],
       mapping = aes(x = gpos, y = 2^log2, fill = selected_genes),
-      shape = 21, size = size_selected, alpha = 0.8, col = "black"
+      shape = 21, size = theme_params$size_selected, alpha = 0.8, col = "black"
     ) +
-
-    # Layer 3: Segments
     geom_segment(
       data = segments, col = "green", linewidth = 1,
       mapping = aes(x = gstart, xend = gstop, y = 2^mean, yend = 2^mean)
     ) +
-    # Layer 4: Labels
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
@@ -498,7 +630,11 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
     ) +
     scale_fill_hue(l = 70, na.value = "grey50") +
     scale_color_hue(l = 70) +
-    scale_y_log10(limits = ylims, breaks = ybreaks, minor_breaks = yminorbreaks) +
+    scale_y_log10(
+      limits = yaxis_params$ylims, 
+      breaks = yaxis_params$ybreaks, 
+      minor_breaks = yaxis_params$yminorbreaks
+    ) +
     scale_x_continuous(
       breaks = chroms$mid, minor_breaks = chroms$start[-1],
       expand = c(.01, .01), labels = chroms$chromosome
@@ -512,390 +648,462 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
       axis.ticks = element_line(),
       plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
     )
+}
 
-  # 10. SNP Plots ------------------------------------------------------------
-  if (!is.null(snp_table)) {
-    # Prepare SNP data
-    # defaults to using raw allele ratio:
-    snp_table[, allele_ratio_use := allele_ratio]
-    # but if there is a corrected allele ratio, use it (not implemented yet but
-    # keeping logic):
-    if (!is.null(snp_table$allele_ratio_corrected2)) {
-      snp_table[, allele_ratio_use := allele_ratio_corrected2]
-    }
-
-    # Filter SNPs
-    snp_table <- snp_table[type != "other"][allele_ratio_use < .99][
-      allele_ratio_use > .01
-    ][RD > 2][AD > 2]
-    median_dp <- median(snp_table$DP, na.rm = TRUE)
-    snp_table <- snp_table[DP > median_dp / 5][DP < median_dp * 10]
-
-    # Map to targets
-    targets[, allele_ratio := as.double(NA)]
-    targets[, DP := as.double(NA)] # Add DP
-    idx <- match(targets$bin, snp_table$bin)
-    targets[
-      !is.na(idx),
-      `:=`(
-        allele_ratio = snp_table$allele_ratio_use[idx[!is.na(idx)]],
-        DP = snp_table$DP[idx[!is.na(idx)]]
+#' Create SNP-related Plots
+#'
+#' Creates depth vs allele ratio, grid, nogrid, order, and position plots
+#'
+#' @param targets data.table with SNP data
+#' @param cancergenes_summary data.table
+#' @param chroms data.table
+#' @param chroms_order data.table
+#' @param somatic_plot data.table or NULL
+#' @param somatic_labels data.table or NULL
+#' @param yaxis_params List from prepare_yaxis_params()
+#' @param theme_params List from setup_plot_theme()
+#' @return List of ggplot objects
+#' @keywords internal
+create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
+                             somatic_plot, somatic_labels, yaxis_params, theme_params) {
+  p <- list()
+  
+  # Calculate depth limits
+  valid_dp <- targets[!is.na(DP)]$DP
+  if (length(valid_dp) > 0) {
+    m <- quantile(valid_dp, c(.01, .50, .99), na.rm = TRUE)
+  } else {
+    m <- quantile(targets[is_target == TRUE]$count, c(.01, .50, .99), na.rm = TRUE)
+  }
+  
+  if (m[1] > m[2] / 3) m[1] <- m[2] / 3
+  if (m[3] < m[2] * 3) m[3] <- m[2] * 3
+  m[1] <- max(1, m[1])
+  
+  if (!is.finite(m[1]) || !is.finite(m[3]) || m[1] <= 0 || m[3] <= 0) {
+    m <- c(1, 10, 100)
+  }
+  
+  # Depth vs Allele Ratio
+  p$depth_alleleratio <- ggplot(targets[type != "background"]) +
+    xlab("Depth") +
+    ylab("Allele ratio") +
+    geom_point(
+      data = targets[type != "background" & is.na(selected_genes)],
+      mapping = aes(x = DP, y = allele_ratio),
+      fill = "#606060", col = "#202020",
+      shape = 21, size = 1, alpha = theme_params$alpha / 2
+    ) +
+    geom_point(
+      data = targets[type != "background" & !is.na(selected_genes)],
+      mapping = aes(x = DP, y = allele_ratio, fill = selected_genes),
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
+    ) +
+    (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
+      geom_point(
+        data = somatic_plot,
+        mapping = aes(x = DP, y = AF),
+        col = "red", size = theme_params$size_selected, alpha = 0.8, shape = 16
       )
-    ]
-
-    # Calculate MAF and smooth
-    targets[, maf := abs(allele_ratio - .5) + .5]
-    targets[!is.na(maf), maf := stats::runmed(maf, 9)]
-
-    # 5. Depth vs Allele Ratio (E)
-    # Calculate quantiles for depth-based limits (using DP)
-    valid_dp <- targets[!is.na(DP)]$DP
-    if (length(valid_dp) > 0) {
-      m <- quantile(valid_dp, c(.01, .50, .99), na.rm = TRUE)
-    } else {
-      # Fallback to counts if DP is missing (should verify why)
-      m <- quantile(targets[is_target == TRUE]$count, c(.01, .50, .99), na.rm = TRUE)
-    }
-    
-    if (m[1] > m[2] / 3) m[1] <- m[2] / 3
-    if (m[3] < m[2] * 3) m[3] <- m[2] * 3
-    m[1] <- max(1, m[1])
-
-    # Robustness checks
-    if (!is.finite(m[1]) || !is.finite(m[3]) || m[1] <= 0 || m[3] <= 0) {
-       m <- c(1, 10, 100)
-    }
-
-    p$depth_alleleratio <- ggplot(targets[type != "background"]) +
-      xlab("Depth") + # Changed from Fragments
-      ylab("Allele ratio") +
-      # Layer 1: Background (grey)
-      geom_point(
-        data = targets[type != "background" & is.na(selected_genes)],
-        mapping = aes(x = DP, y = allele_ratio), # Changed count to DP
-        fill = "#606060", col = "#202020",
-        shape = 21, size = 1, alpha = alpha / 2
-      ) +
-      # Layer 2: Selected Genes (colored)
-      geom_point(
-        data = targets[type != "background" & !is.na(selected_genes)],
-        mapping = aes(x = DP, y = allele_ratio, fill = selected_genes), # Changed count to DP
-        col = "black", shape = 21, size = size_selected, alpha = 0.8
-      ) +
-      # Layer 2.5: Somatic Mutations (Red) - AF vs Depth
-      (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
-        geom_point(
-          data = somatic_plot,
-          mapping = aes(x = DP, y = AF), # Changed count to DP
-          col = "red", size = size_selected, alpha = 0.8, shape = 16
-        )
-      }) +
-      (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
-        geom_label_repel(
-          data = somatic_labels,
-          mapping = aes(x = DP, y = AF, label = label), # Changed count to DP
-          fill = "white", col = "darkred", segment.color = "red",
-          nudge_y = somatic_labels$nudge,
-          size = 2.5, show.legend = FALSE, min.segment.length = 0,
-          box.padding = 0.1, label.padding = 0.1, point.padding = 0.1
-        )
-      }) +
-
-      theme(
-        panel.spacing = unit(0, "lines"), strip.background = element_blank(),
-        strip.text.x = element_blank()
-      ) +
-      scale_fill_hue(l = 70) +
-      scale_x_log10(limits = c(m[1], m[3])) +
-      scale_y_continuous(limits = c(-.05, 1.05), breaks = c(0, .25, .5, .75, 1))
-
-    # snp (grid) smooth-to-allele-ratio plot
-    p$grid <- ggplot(targets) +
-      xlim(c(.2, 1.8)) +
-      scale_y_continuous(
-        limits = c(.5, 1),
-        breaks = seq(0.5, .9, by = 0.1),
-        labels = c("0.5", "0.6", "0.7", "0.8", "0.9")
-      ) +
-      xlab("Corrected depth (smooth)") +
-      ylab("Major Allele Ratio") +
-      geom_point(
-        data = targets[, .(smooth_log2, maf)],
-        aes(x = 2^smooth_log2, y = maf), col = "lightgrey", alpha = .2
-      ) +
-      geom_text(
-        data = unique(targets[, .(chromosome)]),
-        mapping = aes(x = .25, y = .95, label = chromosome)
-      ) +
-      # Background layer
-      geom_point(
-        data = targets[label != "background" & is.na(selected_genes)],
-        aes(x = 2^smooth_log2, y = maf),
-        fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
-      ) +
-      # Selected Genes layer
-      geom_point(
-        data = targets[label != "background" & !is.na(selected_genes)],
-        aes(x = 2^smooth_log2, y = maf, fill = selected_genes),
-        shape = 21, size = size_selected, alpha = 0.8, col = "black"
-      ) +
-
-      facet_wrap(facets = vars(factor(chromosome,
-        levels = unique(chromosome),
-        ordered = TRUE
-      )), ncol = 8) +
-      scale_fill_hue(l = 70) +
-      theme(
-        panel.spacing = unit(0, "lines"),
-        strip.background = element_blank(), strip.text.x = element_blank()
+    }) +
+    (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
+      ggrepel::geom_label_repel(
+        data = somatic_labels,
+        mapping = aes(x = DP, y = AF, label = label),
+        fill = "white", col = "darkred", segment.color = "red",
+        nudge_y = somatic_labels$nudge,
+        size = 2.5, show.legend = FALSE, min.segment.length = 0,
+        box.padding = 0.1, label.padding = 0.1, point.padding = 0.1
       )
-
-    # snp (all) smooth-to-allele-ratio plot
-    p$nogrid <- ggplot(targets) +
-      xlim(c(0.2, 1.8)) +
-      xlab("Corrected depth (smooth)") +
-      ylab("Major allele ratio (smooth)") +
-      scale_fill_hue(l = 70) +
-      scale_y_continuous(
-        limits = c(.5, 1),
-        sec.axis = ggplot2::sec_axis(
-          ~ 2 * (. - 0.5),
-          name = "Homozygous DNA fraction",
-          breaks = seq(0, 1, by = 0.1)
-        )
-      ) +
-      geom_point(
-        data = targets[, .(smooth_log2, maf)],
-        aes(x = 2^smooth_log2, y = maf), col = "lightgrey", alpha = .2
-      ) +
-      # Background
-      geom_point(
-        data = targets[label != "background" & is.na(selected_genes)],
-        aes(x = 2^smooth_log2, y = maf),
-        fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
-      ) +
-      # Selected
-      geom_point(
-        data = targets[label != "background" & !is.na(selected_genes)],
-        aes(x = 2^smooth_log2, y = maf, fill = selected_genes),
-        shape = 21, size = size_selected, alpha = 0.8, col = "black"
+    }) +
+    theme(
+      panel.spacing = unit(0, "lines"), 
+      strip.background = element_blank(),
+      strip.text.x = element_blank()
+    ) +
+    scale_fill_hue(l = 70) +
+    scale_x_log10(limits = c(m[1], m[3])) +
+    scale_y_continuous(limits = c(-.05, 1.05), breaks = c(0, .25, .5, .75, 1))
+  
+  # Grid plot
+  p$grid <- ggplot(targets) +
+    xlim(c(.2, 1.8)) +
+    scale_y_continuous(
+      limits = c(.5, 1),
+      breaks = seq(0.5, .9, by = 0.1),
+      labels = c("0.5", "0.6", "0.7", "0.8", "0.9")
+    ) +
+    xlab("Corrected depth (smooth)") +
+    ylab("Major Allele Ratio") +
+    geom_point(
+      data = targets[, .(smooth_log2, maf)],
+      aes(x = 2^smooth_log2, y = maf), col = "lightgrey", alpha = .2
+    ) +
+    geom_text(
+      data = unique(targets[, .(chromosome)]),
+      mapping = aes(x = .25, y = .95, label = chromosome)
+    ) +
+    geom_point(
+      data = targets[label != "background" & is.na(selected_genes)],
+      aes(x = 2^smooth_log2, y = maf),
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
+    ) +
+    geom_point(
+      data = targets[label != "background" & !is.na(selected_genes)],
+      aes(x = 2^smooth_log2, y = maf, fill = selected_genes),
+      shape = 21, size = theme_params$size_selected, alpha = 0.8, col = "black"
+    ) +
+    facet_wrap(facets = vars(factor(chromosome,
+      levels = unique(chromosome),
+      ordered = TRUE
+    )), ncol = 8) +
+    scale_fill_hue(l = 70) +
+    theme(
+      panel.spacing = unit(0, "lines"),
+      strip.background = element_blank(), 
+      strip.text.x = element_blank()
+    )
+  
+  # No-grid plot
+  p$nogrid <- ggplot(targets) +
+    xlim(c(0.2, 1.8)) +
+    xlab("Corrected depth (smooth)") +
+    ylab("Major allele ratio (smooth)") +
+    scale_fill_hue(l = 70) +
+    scale_y_continuous(
+      limits = c(.5, 1),
+      sec.axis = ggplot2::sec_axis(
+        ~ 2 * (. - 0.5),
+        name = "Homozygous DNA fraction",
+        breaks = seq(0, 1, by = 0.1)
       )
-
-
-    # allele ratio by order
-    p$order_alleleratio <- ggplot(targets) +
-      xlab("Order of genomic position") +
-      ylab("Allele ratio") +
-      # Layer 0: Vertical lines
-      geom_vline(
-        data = cancergenes_summary,
-        mapping = aes(xintercept = bin, color = selected_genes),
-        alpha = 0.5, linewidth = 0.5, show.legend = FALSE
-      ) +
-      # Background
+    ) +
+    geom_point(
+      data = targets[, .(smooth_log2, maf)],
+      aes(x = 2^smooth_log2, y = maf), col = "lightgrey", alpha = .2
+    ) +
+    geom_point(
+      data = targets[label != "background" & is.na(selected_genes)],
+      aes(x = 2^smooth_log2, y = maf),
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
+    ) +
+    geom_point(
+      data = targets[label != "background" & !is.na(selected_genes)],
+      aes(x = 2^smooth_log2, y = maf, fill = selected_genes),
+      shape = 21, size = theme_params$size_selected, alpha = 0.8, col = "black"
+    )
+  
+  # Order vs Allele Ratio
+  p$order_alleleratio <- ggplot(targets) +
+    xlab("Order of genomic position") +
+    ylab("Allele ratio") +
+    geom_vline(
+      data = cancergenes_summary,
+      mapping = aes(xintercept = bin, color = selected_genes),
+      alpha = 0.5, linewidth = 0.5, show.legend = FALSE
+    ) +
+    geom_point(
+      data = targets[!is.na(label) & is.na(selected_genes)],
+      mapping = aes(x = bin, y = allele_ratio),
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
+    ) +
+    geom_point(
+      data = targets[!is.na(label) & !is.na(selected_genes)],
+      mapping = aes(x = bin, y = allele_ratio, fill = selected_genes),
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
+    ) +
+    (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
       geom_point(
-        data = targets[!is.na(label) & is.na(selected_genes)],
-        mapping = aes(x = bin, y = allele_ratio),
-        fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
-      ) +
-      # Selected
+        data = somatic_plot,
+        mapping = aes(x = bin, y = AF),
+        col = "red", size = theme_params$size_selected, alpha = 0.8, shape = 16
+      )
+    }) +
+    (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
+      ggrepel::geom_label_repel(
+        data = somatic_labels,
+        mapping = aes(x = bin, y = AF, label = label),
+        fill = "white", col = "darkred", segment.color = "red",
+        nudge_y = somatic_labels$nudge,
+        size = 2.5, show.legend = FALSE, min.segment.length = 0,
+        box.padding = 0.1, label.padding = 0.1, point.padding = 0.1
+      )
+    }) +
+    geom_text(
+      data = cancergenes_summary,
+      mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
+      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+    ) +
+    scale_fill_hue(l = 70) +
+    scale_color_hue(l = 70) +
+    scale_x_continuous(
+      breaks = chroms_order$mid, minor_breaks = chroms_order$start[-1],
+      expand = c(.01, .01), labels = chroms_order$chromosome
+    ) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, .25, .5, .75, 1)) +
+    coord_cartesian(clip = "off") +
+    theme(
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.y = element_line(),
+      panel.grid.minor.x = element_line(color = "black"),
+      axis.line = element_line(),
+      axis.ticks = element_line(),
+      plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
+    )
+  
+  # Position vs Allele Ratio
+  p$pos_alleleratio <- ggplot(targets) +
+    xlab("Genomic position") +
+    ylab("Allele ratio") +
+    geom_vline(
+      data = cancergenes_summary,
+      mapping = aes(xintercept = gpos, color = selected_genes),
+      alpha = 0.5, linewidth = 0.5, show.legend = FALSE
+    ) +
+    geom_point(
+      data = targets[!is.na(label) & is.na(selected_genes)],
+      mapping = aes(x = gpos, y = allele_ratio),
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
+    ) +
+    geom_point(
+      data = targets[!is.na(label) & !is.na(selected_genes)],
+      mapping = aes(x = gpos, y = allele_ratio, fill = selected_genes),
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
+    ) +
+    (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
       geom_point(
-        data = targets[!is.na(label) & !is.na(selected_genes)],
-        mapping = aes(x = bin, y = allele_ratio, fill = selected_genes),
-        col = "black", shape = 21, size = size_selected, alpha = 0.8
+        data = somatic_plot,
+        mapping = aes(x = gpos, y = AF),
+        col = "red", size = 1.2, alpha = 0.8, shape = 16
+      )
+    }) +
+    (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
+      ggrepel::geom_label_repel(
+        data = somatic_labels,
+        mapping = aes(x = gpos, y = AF, label = label),
+        fill = "white", col = "darkred", segment.color = "red",
+        nudge_y = somatic_labels$nudge,
+        size = 2.5, show.legend = FALSE, min.segment.length = 0,
+        box.padding = 0.1, label.padding = 0.1, point.padding = 0.1
+      )
+    }) +
+    geom_text(
+      data = cancergenes_summary,
+      mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
+      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+    ) +
+    scale_fill_hue(l = 70) +
+    scale_color_hue(l = 70) +
+    scale_x_continuous(
+      breaks = chroms$mid, minor_breaks = chroms$start[-1],
+      expand = c(.01, .01), labels = chroms$chromosome
+    ) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, .25, .5, .75, 1)) +
+    coord_cartesian(clip = "off") +
+    theme(
+      panel.grid.major.x = element_blank(),
+      panel.grid.minor.y = element_line(),
+      panel.grid.minor.x = element_line(color = "black"),
+      axis.line = element_line(),
+      axis.ticks = element_line(),
+      plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
+    )
+  
+  p
+}
+
+#' Create GIS Plot
+#'
+#' @param gis_table data.table or NULL
+#' @return ggplot object
+#' @keywords internal
+plot_gis <- function(gis_table) {
+  if (!is.null(gis_table)) {
+    ggplot2::ggplot() +
+      ggplot2::geom_line(
+        data = gis_table, 
+        aes(x = fraction, y = predicted_gis, group = 1), 
+        linewidth = 2
       ) +
-      # Layer 2.5: Somatic Mutations (Red)
-      (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
-        geom_point(
-          data = somatic_plot,
-          mapping = aes(x = bin, y = AF), # Plot raw AF here (0-1)
-          col = "red", size = size_selected, alpha = 0.8, shape = 16
-        )
-      }) +
-      (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
-        geom_label_repel(
-            data = somatic_labels,
-            mapping = aes(x = bin, y = AF, label = label),
-            fill = "white", col = "darkred", segment.color = "red",
-            nudge_y = somatic_labels$nudge,
-            size = 2.5, show.legend = FALSE, min.segment.length = 0,
-            box.padding = 0.1, label.padding = 0.1, point.padding = 0.1
-        )
-      }) +
-      # Labels
-      geom_text(
-        data = cancergenes_summary,
-        mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
-        angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      ggplot2::geom_line(
+        data = gis_table, 
+        aes(x = fraction, y = local_cnv * 10, col = "local_cnv"), 
+        lty = 1, linewidth = 1
       ) +
-      scale_fill_hue(l = 70) +
-      scale_color_hue(l = 70) +
+      ggplot2::geom_line(
+        data = gis_table, 
+        aes(x = fraction, y = focal_gain * 10, col = "focal_gain"), 
+        lty = 1, linewidth = 1
+      ) +
+      ggplot2::geom_line(
+        data = gis_table, 
+        aes(x = fraction, y = loh * 10, col = "loh"), 
+        lty = 1, linewidth = 1
+      ) +
       scale_x_continuous(
-        breaks = chroms_order$mid, minor_breaks = chroms_order$start[-1],
-        expand = c(.01, .01), labels = chroms_order$chromosome
+        name = "Tumor DNA fraction",
+        breaks = seq(0, 1, .05), minor_breaks = seq(0, 1, .01),
+        labels = seq(0, 100, 5)
       ) +
-      scale_y_continuous(limits = c(0, 1), breaks = c(0, .25, .5, .75, 1)) +
-      coord_cartesian(clip = "off") +
+      scale_y_continuous(
+        name = "GMCK GIS score", limits = c(0, 100),
+        breaks = seq(0, 100, 10),
+        sec.axis = sec_axis(~., breaks = seq(0, 100, 10))
+      ) +
+      ggplot2::geom_hline(yintercept = 42, lty = 2, col = "#00000050", linewidth = 2) +
+      labs(color = "Feature (x10)") +
+      theme(legend.position = "bottom")
+  } else {
+    ggplot2::ggplot() +
+      ggplot2::geom_text(aes(x = 0.5, y = 0.5, label = "No GIS Data")) +
       theme(
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_line(),
-        panel.grid.minor.x = element_line(color = "black"),
-        axis.line = element_line(),
-        axis.ticks = element_line(),
-        plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
-      )
-
-    # Remove redundant quantile calculation here as it is done for depth_alleleratio
-    # But for safety, keep m definition if depth_alleleratio wasn't called?
-    # Actually depth_alleleratio code block is always run (it's not conditional on snp_table being present in my previous edit?
-    # Wait, in original script, depth_alleleratio logic WAS conditional on snp_allele_ratio.
-
-
-    # 7. GIS Plot (replaces depth_alleleratio in old layout, now moved to K)
-    if (!is.null(gis_table)) {
-      p$gis_plot <- ggplot2::ggplot() +
-        ggplot2::geom_line(data = gis_table, aes(x = fraction, y = predicted_gis, group = 1), linewidth = 2) +
-        ggplot2::geom_line(data = gis_table, aes(x = fraction, y = local_cnv * 10, col = "local_cnv"), lty = 1, linewidth = 1) +
-        ggplot2::geom_line(data = gis_table, aes(x = fraction, y = focal_gain * 10, col = "focal_gain"), lty = 1, linewidth = 1) +
-        ggplot2::geom_line(data = gis_table, aes(x = fraction, y = loh * 10, col = "loh"), lty = 1, linewidth = 1) +
-        scale_x_continuous(
-          name = "Tumor DNA fraction",
-          breaks = seq(0, 1, .05), minor_breaks = seq(0, 1, .01),
-          labels = seq(0, 100, 5)
-        ) +
-        scale_y_continuous(
-          name = "GMCK GIS score", limits = c(0, 100),
-          breaks = seq(0, 100, 10),
-          sec.axis = sec_axis(~., breaks = seq(0, 100, 10))
-        ) +
-        ggplot2::geom_hline(yintercept = 42, lty = 2, col = "#00000050", linewidth = 2) +
-        labs(color = "Feature (x10)") +
-        theme(legend.position = "bottom")
-    } else {
-      p$gis_plot <- ggplot2::ggplot() +
-        ggplot2::geom_text(aes(x = 0.5, y = 0.5, label = "No GIS Data")) +
-        theme(axis.line = element_blank(), axis.text = element_blank(), axis.ticks = element_blank())
-    }
-
-
-    # allele ratio by genomic position
-    # 10. Plot: Position vs Allele Ratio ---------------------------------------
-    p$pos_alleleratio <- ggplot(targets) +
-      xlab("Genomic position") +
-      ylab("Allele ratio") +
-      # Layer 0: Vertical lines
-      geom_vline(
-        data = cancergenes_summary,
-        mapping = aes(xintercept = gpos, color = selected_genes),
-        alpha = 0.5, linewidth = 0.5, show.legend = FALSE
-      ) +
-      # Layer 1: Background
-      geom_point(
-        data = targets[!is.na(label) & is.na(selected_genes)],
-        mapping = aes(x = gpos, y = allele_ratio),
-        fill = "#606060", col = "#202020", shape = 21, size = size, alpha = alpha
-      ) +
-      # Layer 2: Selected
-      geom_point(
-        data = targets[!is.na(label) & !is.na(selected_genes)],
-        mapping = aes(x = gpos, y = allele_ratio, fill = selected_genes),
-        col = "black", shape = 21, size = size_selected, alpha = 0.8
-      ) +
-      # Layer 2.5: Somatic Mutations (Red)
-      (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
-        geom_point(
-          data = somatic_plot,
-          mapping = aes(x = gpos, y = AF),
-          col = "red", size = 1.2, alpha = 0.8, shape = 16
-        )
-      }) + 
-      # Layer 2.6: Labels
-      (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
-        geom_label_repel(
-            data = somatic_labels,
-            mapping = aes(x = gpos, y = AF, label = label),
-            fill = "white", col = "darkred", segment.color = "red",
-            nudge_y = somatic_labels$nudge,
-            size = 2.5, show.legend = FALSE, min.segment.length = 0,
-            box.padding = 0.1, label.padding = 0.1, point.padding = 0.1
-        )
-      }) +
-      # Layer 3: Labels
-      geom_text(
-        data = cancergenes_summary,
-        mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
-        angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
-      ) +
-      scale_fill_hue(l = 70) +
-      scale_color_hue(l = 70) +
-      scale_x_continuous(
-        breaks = chroms$mid, minor_breaks = chroms$start[-1],
-        expand = c(.01, .01), labels = chroms$chromosome
-      ) +
-      scale_y_continuous(limits = c(0, 1), breaks = c(0, .25, .5, .75, 1)) +
-      coord_cartesian(clip = "off") +
-      theme(
-        panel.grid.major.x = element_blank(),
-        panel.grid.minor.y = element_line(),
-        panel.grid.minor.x = element_line(color = "black"),
-        axis.line = element_line(),
-        axis.ticks = element_line(),
-        plot.margin = unit(c(2, 0.5, 0.5, 0.5), "lines")
+        axis.line = element_blank(), 
+        axis.text = element_blank(), 
+        axis.ticks = element_blank()
       )
   }
+}
 
-  # Apply legend formatting
-  for (i in 1:length(p)) {
-    p[[i]] <- p[[i]] + guides(fill = guide_legend(override.aes = list(
-      shape = 21, size = 3
-    ))) + labs(fill = NULL)
+#' Add Legend Formatting to Plots
+#'
+#' @param plot_list List of ggplot objects
+#' @return Modified list with consistent legend formatting
+#' @keywords internal
+format_plot_legends <- function(plot_list) {
+  for (i in 1:length(plot_list)) {
+    plot_list[[i]] <- plot_list[[i]] + 
+      guides(fill = guide_legend(override.aes = list(shape = 21, size = 3))) + 
+      labs(fill = NULL)
   }
+  plot_list
+}
 
-  # 11. Layout & Save --------------------------------------------------------
-  # We use the 'patchwork' package to arrange the individual plots into a
-  # composite figure.
-  # The layout string defines the grid, where letters correspond to the plot
-  # objects below.
-  if (!is.null(snp_table)) {
+#' Arrange and Save Final Plot
+#'
+#' @param plot_list List of ggplot objects
+#' @param use_snp Logical: whether SNP plots are included
+#' @param title Character: plot title
+#' @param output_file Character path or NULL
+#' @return ggplot object (invisibly if saved)
+#' @keywords internal
+arrange_and_save_plots <- function(plot_list, use_snp, title, output_file) {
+  if (use_snp) {
     layout <- "AABBBBBB
-                CCDDDDDD
-                EEFFFFFF
-                GGHHHHHH"
-    fig <- p$gc_rawdepth + p$order_rawdepth +
-      p$gc_log2 + p$order_log2 +
-      p$depth_alleleratio + p$order_alleleratio +
-      # p$pos_log2 +
-      # p$pos_alleleratio +
-      p$nogrid + p$grid +
-      plot_layout(design = layout, guides = "collect") &
+               CCDDDDDD
+               EEFFFFFF
+               GGHHHHHH"
+    fig <- plot_list$gc_rawdepth + plot_list$order_rawdepth +
+      plot_list$gc_log2 + plot_list$order_log2 +
+      plot_list$depth_alleleratio + plot_list$order_alleleratio +
+      plot_list$nogrid + plot_list$grid +
+      patchwork::plot_layout(design = layout, guides = "collect") &
       theme(legend.position = "none")
   } else {
     layout <- "ABBB
                CDDD
                EEEE"
-
-    fig <- p$gc_rawdepth + p$order_rawdepth +
-      p$gc_log2 + p$order_log2 +
-      p$pos_log2 +
-      plot_layout(design = layout, guides = "collect") &
+    fig <- plot_list$gc_rawdepth + plot_list$order_rawdepth +
+      plot_list$gc_log2 + plot_list$order_log2 +
+      plot_list$pos_log2 +
+      patchwork::plot_layout(design = layout, guides = "collect") &
       theme(legend.position = "none")
   }
-
-  # Add title/caption matching original format
-  pa <- plot_annotation(
+  
+  # Add title
+  pa <- patchwork::plot_annotation(
     title = title,
     caption = paste("Jumble on", format(Sys.time(), "%a %b %e %Y, %H:%M"))
   )
   fig <- fig + pa
-
-  # Save if output file specified
+  
+  # Save if specified
   if (!is.null(output_file)) {
     png(file = output_file, width = 1600, height = 1300, res = 100)
     suppressWarnings(print(fig))
     dev.off()
   }
-
+  
   invisible(fig)
+}
+
+#' Plot Jumble Results (Refactored)
+#'
+#' Generates plots for Jumble analysis results.
+#'
+#' @param targets Normalized targets data.table (must have label, selected_genes).
+#' @param segments Segments data.table.
+#' @param reference Reference object (for chromlength).
+#' @param snp_table Optional SNP table.
+#' @param output_file Path to save the plot (PNG).
+#' @param title Plot title.
+#' @param gis_table Optional GIS results table.
+#' @param somatic_table Optional table of somatic mutations.
+#' @return The ggplot object (invisibly).
+#' @export
+plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
+                         output_file = NULL, title = "", gis_table = NULL, 
+                         somatic_table = NULL) {
+  # 1. Setup
+  annotate_targets(targets)
+  theme_params <- setup_plot_theme()
+  axis_params <- prepare_depth_axis()
+  yaxis_params <- prepare_yaxis_params(targets)
+  
+  # 2. Filter and prepare data
+  chrom_levels <- c(as.character(1:22), "X", "Y")
+  targets <- targets[chromosome %in% chrom_levels]
+  
+  # 3. Prepare chromosome data
+  chr_data <- prepare_chromosome_data(targets, reference)
+  chroms <- chr_data$chroms
+  chroms_order <- chr_data$chroms_order
+  
+  # 4. Add genomic positions
+  pos_data <- add_genomic_positions(targets, segments, chroms)
+  targets <- pos_data$targets
+  segments <- pos_data$segments
+  
+  # 5. Prepare cancer gene summaries
+  cancergenes_summary <- prepare_cancergenes_summary(targets)
+  
+  # 6. Prepare somatic data
+  somatic_data <- prepare_somatic_data(somatic_table, targets, reference)
+  somatic_plot <- somatic_data$somatic_plot
+  somatic_labels <- somatic_data$somatic_labels
+  
+  # 7. Initialize plot list
+  p <- list()
+  
+  # 8. Create basic plots
+  p$gc_rawdepth <- plot_gc_rawdepth(targets, theme_params, axis_params)
+  p$order_rawdepth <- plot_order_rawdepth(targets, cancergenes_summary, chroms_order,
+                                           theme_params, axis_params)
+  p$pos_rawdepth <- plot_pos_rawdepth(targets, cancergenes_summary, chroms,
+                                       theme_params, axis_params)
+  p$gc_log2 <- plot_gc_log2(targets, yaxis_params, theme_params)
+  p$order_log2 <- plot_order_log2(targets, segments, cancergenes_summary, chroms_order,
+                                   yaxis_params, theme_params)
+  p$pos_log2 <- plot_pos_log2(targets, segments, cancergenes_summary, chroms,
+                               yaxis_params, theme_params)
+  
+  # 9. Create SNP plots if needed
+  if (!is.null(snp_table)) {
+    targets <- prepare_snp_data(snp_table, targets)
+    snp_plots <- create_snp_plots(targets, cancergenes_summary, chroms, chroms_order,
+                                   somatic_plot, somatic_labels, yaxis_params, theme_params)
+    p <- c(p, snp_plots)
+    p$gis_plot <- plot_gis(gis_table)
+  }
+  
+  # 10. Format legends
+  p <- format_plot_legends(p)
+  
+  # 11. Arrange and save
+  arrange_and_save_plots(p, !is.null(snp_table), title, output_file)
 }
 
 #' Plot GIS Score

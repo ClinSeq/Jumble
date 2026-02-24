@@ -2,7 +2,7 @@
 % Please edit documentation in R/plot.R
 \name{plot_results}
 \alias{plot_results}
-\title{Plot Jumble Results}
+\title{Plot Jumble Results (Refactored)}
 \usage{
 plot_results(
   targets,
@@ -36,5 +36,5 @@ plot_results(
 The ggplot object (invisibly).
 }
 \description{
-Generates plots for Jumble analysis results matching original script.
+Generates plots for Jumble analysis results.
 }

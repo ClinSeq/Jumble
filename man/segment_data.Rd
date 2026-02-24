@@ -19,5 +19,6 @@ segment_data(targets, alpha = NULL, cancergenes = NULL, cancerexons = NULL)
 A list containing the segment table and the updated targets with segment IDs.
 }
 \description{
-Performs segmentation on the normalized log-ratios using PSCBS.
+Main wrapper function that performs segmentation on normalized log-ratios using PSCBS,
+assigns mapped segments to targets, and optionally annotates the data.
 }

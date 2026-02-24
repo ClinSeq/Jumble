@@ -1,235 +1,595 @@
-#' Compute Reference PCA
+#' Reconstruct Targets from Reference Counts
 #'
-#' Performs PCA on the reference dataset to identify latent features for
-#' normalization.
+#' Rebuilds target data.table from reference allcounts and template
+#'
+#' @param reference Reference object with allcounts and target_template
+#' @return data.table with reconstructed targets from all reference samples
+#' @keywords internal
+reconstruct_targets_from_reference <- function(reference) {
+  allcounts <- reference$allcounts
+  target_template <- reference$target_template
+  
+  targetlist <- list()
+  for (i in seq_along(allcounts)) {
+    counts <- allcounts[[i]]
+    t <- data.table::copy(target_template)
+    t[, sample := paste0("ref_", i)]
+    t[, count := counts$count]
+    t[, count_short := counts$count_short]
+    
+    targetlist[[i]] <- t
+  }
+  
+  data.table::rbindlist(targetlist)
+}
+
+#' Apply Value Floor
+#'
+#' Helper to replace values below 1 with 1 (for log safety)
+#'
+#' @param x Numeric vector
+#' @return Vector with floor of 1 and NA replaced
+#' @keywords internal
+apply_value_floor <- function(x) {
+  x[x < 1] <- 1
+  x[is.na(x)] <- 1
+  x
+}
+
+#' Filter Bins by Coverage Thresholds
+#'
+#' Remove bins with extremely low or high coverage
+#'
+#' @param targets data.table with count column
+#' @return Filtered targets
+#' @keywords internal
+filter_bins_by_coverage <- function(targets) {
+  # Low coverage threshold
+  threshold_low <- median(targets[is_target == TRUE]$count) * 0.01
+  keep_bins_low <- targets[, median(count), by = bin][V1 > threshold_low]$bin
+  targets <- targets[bin %in% keep_bins_low]
+  
+  # High coverage threshold
+  threshold_high <- median(targets[is_target == TRUE]$count) / 0.05
+  keep_bins_high <- targets[, median(count), by = bin][V1 < threshold_high]$bin
+  targets <- targets[bin %in% keep_bins_high]
+  
+  targets
+}
+
+#' Calculate Log Ratio
+#'
+#' Convert counts to log2 ratio with safety checks
+#'
+#' @param targets data.table with count column
+#' @param count_col Column name to convert
+#' @param output_col Name for output column
+#' @return Modified targets with output_col added
+#' @keywords internal
+calculate_logr <- function(targets, count_col, output_col) {
+  targets[[output_col]] <- log2(apply_value_floor(targets[[count_col]]))
+  targets
+}
+
+#' Median Correct by Backbone
+#'
+#' Subtract median of backbone bins from each sample/target group
+#'
+#' @param targets data.table with is_backbone and is_target columns
+#' @param lr_col Column name with log ratio values
+#' @return Modified targets
+#' @keywords internal
+median_correct_backbone <- function(targets, lr_col) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  
+  targets[, (lr_col) := get(lr_col) - median(get(lr_col)[is_backbone]),
+    by = c("sample", "is_target")
+  ]
+  targets
+}
+
+#' Detect Sample Gender
+#'
+#' Infer sample gender from X and Y chromosome medians
+#'
+#' @param targets data.table
+#' @param lr_col Column name with log ratio values
+#' @return data.table with male, xmedian, ymedian columns
+#' @keywords internal
+detect_sample_gender <- function(targets, lr_col) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  
+  # X chromosome median
+  targets[, xmedian := median(get(lr_col)[chromosome == "X" & is_tiled == FALSE],
+    na.rm = TRUE
+  ), by = "sample"]
+  targets[, male_from_x := 2^xmedian < 0.75]
+  
+  # Y chromosome median
+  targets[, ymedian := median(get(lr_col)[chromosome == "Y"], na.rm = TRUE),
+    by = "sample"
+  ]
+  targets[, male_from_y := 2^ymedian > 0.25]
+  
+  # Prefer Y detection, fallback to X
+  targets[, male := male_from_y]
+  targets[is.na(male), male := male_from_x]
+  
+  targets
+}
+
+#' Apply Sex Chromosome Corrections
+#'
+#' Adjust X and Y chromosome log ratios for males (nonPAR regions)
+#'
+#' @param targets data.table with male gender assignment
+#' @param lr_col Column name with log ratio values
+#' @return Modified targets with sex-chromosome-corrected values
+#' @keywords internal
+correct_sex_chromosomes <- function(targets, lr_col) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  
+  # Hard-coded PAR (Pseudoautosomal Region) boundaries
+  # X PAR: hg38 positions 2.7e6 - 154.93e6
+  targets[, nonPA := chromosome %in% c("X") & end > 2.70e6 & start < 154.93e6]
+  
+  # X chromosome correction for males
+  if (any(targets$male == TRUE, na.rm = TRUE)) {
+    targets[chromosome == "X" & male == TRUE & nonPA, 
+            (lr_col) := get(lr_col) + 1]
+  }
+  
+  # Y chromosome correction for males
+  # Hard-coded PA boundary at 28.79e6
+  if (any(targets$male == TRUE, na.rm = TRUE)) {
+    targets[male == TRUE & chromosome == "Y" & end < 28.79e6, 
+            (lr_col) := get(lr_col) + 1]
+  }
+  
+  # Y values to NA for females
+  targets[chromosome == "Y" & male == FALSE, (lr_col) := NA]
+  
+  targets
+}
+
+#' Clean Temporary Gender Detection Columns
+#'
+#' @param targets data.table
+#' @return Modified targets with temp columns removed
+#' @keywords internal
+cleanup_gender_columns <- function(targets) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  targets[, c("xmedian", "ymedian", "male_from_x", "male_from_y", 
+              "male", "nonPA") := NULL]
+  targets
+}
+
+#' Impute Missing Values
+#'
+#' Replace NA in log ratio with random noise near 0
+#'
+#' @param targets data.table
+#' @param lr_col Column name with log ratios
+#' @return Modified targets with imputed values
+#' @keywords internal
+impute_missing_logr <- function(targets, lr_col) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  targets[is.na(get(lr_col)), 
+          (lr_col) := rnorm(.N, mean = 0, sd = 0.01)]
+  targets
+}
+
+#' Apply Bin Median Correction
+#'
+#' Subtract bin-wise median (reference correction)
+#'
+#' @param targets data.table
+#' @param lr_col Column name with log ratios
+#' @param ref_col Name for output reference median column
+#' @return Modified targets with reference-corrected values
+#' @keywords internal
+apply_bin_median_correction <- function(targets, lr_col, ref_col) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  targets[, (ref_col) := median(get(lr_col), na.rm = TRUE), by = bin]
+  targets[, (lr_col) := get(lr_col) - get(ref_col)]
+  targets
+}
+
+#' Cast Matrix for PCA
+#'
+#' Convert long-format data to wide matrix for PCA
+#'
+#' @param targets data.table with bin, sample, and value columns
+#' @param id_cols Identifier columns (typically "bin")
+#' @param formula_cols Formula for dcast (e.g., "bin ~ sample")
+#' @param value_col Column to spread
+#' @return data.table in wide format with 'bin' and sample columns
+#' @keywords internal
+cast_to_matrix <- function(targets, formula_cols, value_col) {
+  data.table::dcast(targets[, c("bin", "sample", value_col), with = FALSE],
+                    formula = formula_cols,
+                    value.var = value_col)
+}
+
+#' Perform PCA on Subset
+#'
+#' Helper to perform PCA on specific bins (targets or background)
+#'
+#' @param matrix data.table with bin column and sample columns (wide format)
+#' @param bin_list Vector of bins to include in PCA
+#' @return data.table with PCA scores (PC1, PC2, ...) and bin column, or NULL
+#' @keywords internal
+perform_pca_on_bins <- function(matrix, bin_list) {
+  if (length(bin_list) == 0) return(NULL)
+  
+  submatrix <- matrix[bin %in% bin_list, -1, with = FALSE]
+  if (ncol(submatrix) < 2) return(NULL)  # Need at least 2 samples
+  
+  pca_result <- stats::prcomp(submatrix, center = FALSE, scale. = FALSE)
+  dt <- as.data.table(pca_result$x)
+  dt$bin <- matrix[bin %in% bin_list]$bin
+  
+  dt
+}
+
+#' Detect and Flag PCA Outliers
+#'
+#' Identify bins with extreme PCA scores (outliers)
+#'
+#' @param pca_data data.table from perform_pca_on_bins
+#' @param sd_factor Multiplier for standard deviation threshold
+#' @param top_pcs Number of PCs to inspect (default 100)
+#' @return Vector of outlier bins (empty if none)
+#' @keywords internal
+detect_pca_outliers <- function(pca_data, sd_factor = 3, top_pcs = 100) {
+  if (is.null(pca_data)) return(c())
+  
+  pca_data[, keep := TRUE]
+  pcs <- colnames(pca_data)[grep("^PC", colnames(pca_data))]
+  
+  for (pc in pcs[1:min(top_pcs, length(pcs))]) {
+    # More lenient for higher PCs
+    factor <- ifelse(pc %in% c("PC1", "PC2", "PC3"), 3, 4)
+    sd_val <- stats::sd(pca_data[[pc]], na.rm = TRUE)
+    
+    pca_data[get(pc) < -sd_val * factor, keep := FALSE]
+    pca_data[get(pc) > sd_val * factor, keep := FALSE]
+  }
+  
+  pca_data[keep == FALSE]$bin
+}
+
+#' Prepare Bin Metadata for Correction
+#'
+#' Extract reference median values for later normalization
+#'
+#' @param targets data.table with refmedian columns
+#' @return data.table with unique bin-level metadata
+#' @keywords internal
+prepare_bin_metadata <- function(targets) {
+  unique(targets[, .(bin, refmedian, refmedian_short)])
+}
+
+#' Filter Valid Bins
+#'
+#' Identify bins that survived QC filtering
+#'
+#' @param matrix data.table with bin column
+#' @return Vector of valid bins
+#' @keywords internal
+extract_valid_bins <- function(matrix) {
+  matrix$bin
+}
+
+#' Extract Bin Subset for PCA
+#'
+#' Get bins of specific type (target or background)
+#'
+#' @param target_template data.table with bin column
+#' @param is_target_bool Logical: TRUE for targets, FALSE for background
+#' @param valid_bins Bins that passed QC
+#' @return Vector of bins of specified type
+#' @keywords internal
+get_bins_by_type <- function(target_template, is_target_bool, valid_bins = NULL) {
+  bins <- target_template[is_target == is_target_bool]$bin
+  if (!is.null(valid_bins)) {
+    bins <- bins[bins %in% valid_bins]
+  }
+  bins
+}
+
+#' Apply PCA Correction to Values
+#'
+#' Robust linear model correction using PCA components
+#'
+#' @param data data.table with 'lr' and PC columns
+#' @param train_indices Logical or numeric indices for training subset
+#' @return Corrected log ratio vector
+#' @keywords internal
+correct_by_pca <- function(data, train_indices = NULL) {
+  if (is.null(train_indices)) {
+    train_indices <- rep(TRUE, nrow(data))
+  }
+  
+  # Subsample if too large
+  if (is.logical(train_indices) && length(which(train_indices)) > 20000) {
+    train_indices <- sample(which(train_indices), 20000)
+  } else if (!is.logical(train_indices) && length(train_indices) > 20000) {
+    train_indices <- sample(train_indices, 20000)
+  }
+  
+  # Count PCs
+  pcs <- sum(grepl("^PC", colnames(data)))
+  if (pcs == 0) return(data$lr)
+  
+  # Build formula
+  formula_str <- paste("lr ~ ", paste0("PC", seq_len(min(12, pcs)), collapse = "+"))
+  
+  # Robust linear regression
+  rlm_mod <- tryCatch(
+    {
+      MASS::rlm(as.formula(formula_str), data = data, subset = train_indices)
+    },
+    error = function(e) NULL
+  )
+  
+  if (!is.null(rlm_mod)) {
+    data[, lr := lr - stats::predict(rlm_mod, data)]
+  }
+  
+  data$lr
+}
+
+#' Apply GC Content Correction
+#'
+#' Loess smoothing correction for GC content bias
+#'
+#' @param data data.table with 'lr' and 'gc' columns
+#' @param train_indices Logical or numeric indices for training
+#' @param span Loess span parameter
+#' @return Corrected log ratio vector
+#' @keywords internal
+correct_by_gc <- function(data, train_indices = NULL, span = 0.75) {
+  if (is.null(train_indices)) {
+    train_indices <- rep(TRUE, nrow(data))
+  }
+  
+  # Identify valid rows
+  valid_rows <- is.finite(data$lr) & is.finite(data$gc)
+  train_indices_clean <- train_indices & valid_rows
+  
+  n_points <- sum(train_indices_clean)
+  if (n_points <= 5) return(data$lr)  # Not enough points for loess
+  
+  # Adjust span for small datasets
+  if (n_points < 50) span <- 1.0
+  
+  tryCatch(
+    {
+      loess_mod <- stats::loess(lr ~ gc,
+        data = data,
+        subset = train_indices_clean,
+        span = span,
+        family = "symmetric",
+        control = stats::loess.control(surface = "interpolate")
+      )
+      
+      # Predict and handle NAs
+      preds <- stats::predict(loess_mod, data)
+      preds[is.na(preds)] <- 0
+      data[, lr := lr - preds]
+    },
+    error = function(e) warning("Loess failed: ", e$message)
+  )
+  
+  data$lr
+}
+
+#' Apply Combined PCA and GC Corrections
+#'
+#' Orchestrates both PCA and GC corrections
+#'
+#' @param data data.table with lr, gc, and PCA component columns
+#' @param train_indices Logical indices for training subset
+#' @return Corrected log ratio vector
+#' @keywords internal
+apply_combined_corrections <- function(data, train_indices = NULL) {
+  if (is.null(train_indices)) {
+    train_indices <- rep(TRUE, nrow(data))
+  }
+  
+  # 1. PCA correction
+  corrected <- correct_by_pca(data, train_indices)
+  data[, lr := corrected]
+  
+  # 2. GC correction
+  corrected <- correct_by_gc(data, train_indices)
+  
+  corrected
+}
+
+#' Apply Correction for Subset
+#'
+#' Main function that orchestrates PCA + GC correction for targets or background
+#'
+#' @param targets data.table with all required columns
+#' @param pca_data PCA results data.table
+#' @param lr_col Column name with log ratios
+#' @param output_col Column name for corrected output
+#' @param is_target_bool Logical: TRUE for targets, FALSE for background
+#' @return Modified targets with output_col updated
+#' @keywords internal
+apply_normalization_corrections <- function(targets, pca_data, 
+                                           lr_col, output_col, 
+                                           is_target_bool) {
+  if (is.null(pca_data)) {
+    targets[[output_col]] <- targets[[lr_col]]
+    return(targets)
+  }
+  
+  # Filter to subset
+  ix <- targets$is_target == is_target_bool
+  if (!any(ix)) return(targets)
+  
+  # Merge with PCA
+  data <- merge(targets[ix], pca_data, by = "bin", all.x = TRUE)
+  data[, lr := get(lr_col)]
+  
+  # Apply corrections
+  corrected <- apply_combined_corrections(data, data$is_backbone)
+  
+  # Assign back
+  data[, corrected_lr := corrected]
+  targets[data, (output_col) := i.corrected_lr, on = "bin"]
+  
+  targets
+}
+
+#' Clamp Log Ratio Values
+#'
+#' Set min/max bounds on log ratios
+#'
+#' @param targets data.table
+#' @param lr_col Column to clamp
+#' @param min_val Minimum value
+#' @param max_val Maximum value
+#' @return Modified targets
+#' @keywords internal
+clamp_logr_values <- function(targets, lr_col, min_val, max_val) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  targets[get(lr_col) < min_val, (lr_col) := min_val]
+  targets[get(lr_col) > max_val, (lr_col) := max_val]
+  targets
+}
+
+#' Sort Targets Genomically
+#'
+#' Order by chromosome and genomic position
+#'
+#' @param targets data.table with chromosome and start columns
+#' @return Sorted targets
+#' @keywords internal
+sort_genomically <- function(targets) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  
+  chrom_levels <- c(as.character(1:22), "X", "Y")
+  
+  # Standardize chromosome names
+  targets[, sort_chr := as.character(chromosome)]
+  targets[, sort_chr := stringr::str_remove(sort_chr, "^chr")]
+  targets[, sort_fac := factor(sort_chr, levels = chrom_levels)]
+  
+  # Sort by chromosome factor, then start position
+  data.table::setorder(targets, sort_fac, start, na.last = TRUE)
+  
+  # Clean temp columns
+  targets[, c("sort_chr", "sort_fac") := NULL]
+  
+  targets
+}
+
+#' Clean Up Temporary Columns
+#'
+#' Remove intermediate columns used during normalization
+#'
+#' @param targets data.table
+#' @param cols_to_remove Character vector of column names
+#' @return Modified targets
+#' @keywords internal
+cleanup_temp_columns <- function(targets, cols_to_remove) {
+  # Ensure we have a proper copy (avoids data.table shallow copy warning)
+  targets <- data.table::copy(targets)
+  
+  cols_exist <- cols_to_remove[cols_to_remove %in% names(targets)]
+  if (length(cols_exist) > 0) {
+    targets[, (cols_exist) := NULL]
+  }
+  targets
+}
+
+#' Compute Reference PCA (Refactored)
+#'
+#' Performs PCA on reference dataset to identify latent features for normalization.
 #'
 #' @param reference The reference object.
 #' @return A list containing PCA results for targets and background.
 #' @importFrom stats prcomp sd
-#' @importFrom data.table dcast as.data.table
+#' @importFrom data.table dcast as.data.table setorder
 #' @export
 compute_reference_pca <- function(reference) {
-  # Extract targets from reference
-  # We need to reconstruct the matrix from reference$target_template and
-  # reference$allcounts
-  # Or maybe reference already has the matrix?
-  # In build_reference, we saved 'allcounts'. We need to build the matrix here.
-
-  # Reconstruct targets from allcounts
-  # This logic was in jumble-run.R lines 229-247
-
-  # 1. Extract Counts --------------------------------------------------------
-  allcounts <- reference$allcounts
-  target_template <- reference$target_template
-
-  targetlist <- list()
-  for (i in seq_along(allcounts)) {
-    counts <- allcounts[[i]]
-    # We need to map counts to the template bins
-    # Assuming bins match exactly as checked in build_reference
-
-    t <- data.table::copy(target_template)
-    t[, sample := paste0("ref_", i)]
-
-    # Add counts
-    t[, count := counts$count]
-    if (!is.null(counts$count_medium)) {
-      # Logic for medium fraglength?
-      # In run.R it was conditional. Let's stick to standard count for PCA for
-      # now?
-      # Or maybe we should support it.
-      # For simplicity, let's use 'count' (all fragments) and 'count_short'.
-    }
-    t[, count_short := counts$count_short]
-
-    targetlist[[i]] <- t
-  }
-  targets <- data.table::rbindlist(targetlist)
-
-  # Define backbone
+  # 1. Reconstruct and define backbone
+  targets <- reconstruct_targets_from_reference(reference)
   targets <- define_backbone(targets)
-
-  # Filter bins (remove worst) - logic from run.R lines 256-268
-  # We should probably do this once and save it in reference?
-  # But run.R does it dynamically.
-
-  # 2. Filter Bins -----------------------------------------------------------
-  # Low coverage
-  threshold_low <- median(targets[is_target == TRUE]$count) * 0.01
-  keep_bins_low <- targets[, median(count), by = bin][V1 > threshold_low]$bin
-  targets <- targets[bin %in% keep_bins_low]
-
-  # High coverage
-  threshold_high <- median(targets[is_target == TRUE]$count) / 0.05
-  keep_bins_high <- targets[, median(count), by = bin][V1 < threshold_high]$bin
-  targets <- targets[bin %in% keep_bins_high]
-
-  # (Mappability filter removed - not essential for normalization)
-
-  # 3. Initial Corrections ---------------------------------------------------
-  # LogR
-  min1 <- function(x) {
-    x[x < 1] <- 1
-    x[is.na(x)] <- 1
-    x
-  }
-  targets[, rawLR := log2(min1(count))]
-  targets[, rawLR_short := log2(min1(count_short))]
-
-  # Median correct to backbone
-  targets[, rawLR := rawLR - median(rawLR[is_backbone]),
-    by = c("sample", "is_target")
-  ]
-  targets[, rawLR_short := rawLR_short - median(rawLR_short[is_backbone]),
-    by = c("sample", "is_target")
-  ]
-
-  # X-Y chromosome correct (matching original script lines 299-328)
-  # Doctor the X values in samples where their median implies male
-  # Gender is detected ONCE per sample (not separately for target/background)
-  targets[, xmedian := median(rawLR[chromosome == "X" & is_tiled == FALSE],
-    na.rm = TRUE
-  ), by = "sample"]
-  targets[, xmedian_short := median(rawLR_short[chromosome == "X" &
-    is_tiled == FALSE], na.rm = TRUE), by = "sample"]
-  targets[, male := 2^xmedian < 0.75] # assign gender
-
-  # hard coded PA
-  targets[, nonPA := chromosome %in% c("X") & end > 2.70e6 & start < 154.93e6]
-
-  # adjust to the median
-  if (length(unique(targets[male == TRUE]$sample)) > 0) { # if at least 1 male
-    targets[chromosome == "X" & male == TRUE & nonPA, rawLR := rawLR + 1]
-    targets[
-      chromosome == "X" & male == TRUE & nonPA,
-      rawLR_short := rawLR_short + 1
-    ]
-  }
-
-  # Doctor Y values where their median implies male
-  targets[, ymedian := median(rawLR[chromosome == "Y"], na.rm = TRUE),
-    by = "sample"
-  ] # median by sample
-  targets[, male := 2^ymedian > 0.25] # assign gender based on Y
-
-  if (length(unique(targets[male == TRUE]$sample)) > 0) { # if at least 1 male
-    # hard coded PA
-    targets[male == TRUE & chromosome == "Y" & end < 28.79e6, rawLR := rawLR + 1]
-    targets[
-      male == TRUE & chromosome == "Y" & end < 28.79e6,
-      rawLR_short := rawLR_short + 1
-    ]
-  }
-
-  # Y values set to NA where X median implied female
-  targets[chromosome == "Y" & male == FALSE, rawLR := NA]
-  targets[chromosome == "Y" & male == FALSE, rawLR_short := NA]
-
-  # Clean up temp columns
-  targets[, c("xmedian", "xmedian_short", "ymedian", "male", "nonPA") := NULL]
-
-  # 4. Impute & Med Correct --------------------------------------------------
-  # Impute missing (BEFORE bin median correct!)
-  # If any missing, replace with random value near 0 (matching original script
-  # lines 338-340)
-  targets[is.na(rawLR), rawLR := rnorm(n = .N, mean = 0, sd = 0.01)]
-  targets[is.na(rawLR_short), rawLR_short := rnorm(n = .N, mean = 0, sd = 0.01)]
-
-  # Bin median correct (AFTER X/Y correction!)
-  targets[, refmedian := median(rawLR, na.rm = TRUE), by = bin]
-  targets[, rawLR := rawLR - refmedian]
-
-  targets[, refmedian_short := median(rawLR_short, na.rm = TRUE), by = bin]
-  targets[, rawLR_short := rawLR_short - refmedian_short]
-
-  # Matrix
-  mat <- dcast(targets[, .(bin, sample, rawLR)], bin ~ sample,
-    value.var = "rawLR"
-  )
-  mat_short <- dcast(targets[, .(bin, sample, rawLR_short)], bin ~ sample,
-    value.var = "rawLR_short"
-  )
-
-  # 5. Outlier Removal (PCA 1) -----------------------------------------------
-  targetbins <- target_template[is_target == TRUE]$bin
-  # Only keep those that survived filtering
-  targetbins <- targetbins[targetbins %in% mat$bin]
-
-  # Helper for PCA
-  do_pca <- function(m, bins) {
-    subm <- m[bin %in% bins, -1, with = FALSE]
-    if (ncol(subm) < 2) {
-      return(NULL)
-    } # Need at least 2 samples
-    res <- prcomp(subm, center = FALSE, scale. = FALSE)
-    dt <- as.data.table(res$x)
-    dt$bin <- m[bin %in% bins]$bin
-    return(dt)
-  }
-
-  # Initial PCA for outlier detection
+  
+  # 2. Filter bins by coverage
+  targets <- filter_bins_by_coverage(targets)
+  
+  # 3. Calculate log ratios
+  targets <- calculate_logr(targets, "count", "rawLR")
+  targets <- calculate_logr(targets, "count_short", "rawLR_short")
+  
+  # 4. Median correct to backbone
+  targets <- median_correct_backbone(targets, "rawLR")
+  targets <- median_correct_backbone(targets, "rawLR_short")
+  
+  # 5. Apply sex chromosome corrections
+  targets <- detect_sample_gender(targets, "rawLR")
+  targets <- correct_sex_chromosomes(targets, "rawLR")
+  targets <- detect_sample_gender(targets, "rawLR_short")
+  targets <- correct_sex_chromosomes(targets, "rawLR_short")
+  targets <- cleanup_gender_columns(targets)
+  
+  # 6. Impute and median correct
+  targets <- impute_missing_logr(targets, "rawLR")
+  targets <- impute_missing_logr(targets, "rawLR_short")
+  targets <- apply_bin_median_correction(targets, "rawLR", "refmedian")
+  targets <- apply_bin_median_correction(targets, "rawLR_short", "refmedian_short")
+  
+  # 7. Cast to matrices
+  mat <- cast_to_matrix(targets, bin ~ sample, "rawLR")
+  mat_short <- cast_to_matrix(targets, bin ~ sample, "rawLR_short")
+  
+  # 8. Get bin lists
+  target_template <- reference$target_template
+  targetbins <- get_bins_by_type(target_template, TRUE, mat$bin)
+  backgroundbins <- get_bins_by_type(target_template, FALSE, mat$bin)
+  
+  # 9. Initial PCA for outlier detection
   set.seed(25)
-  tpca <- do_pca(mat, targetbins)
-
+  tpca_initial <- perform_pca_on_bins(mat, targetbins)
+  bgpca_initial <- perform_pca_on_bins(mat, backgroundbins)
+  
+  # Detect and remove outliers
   remove_bins <- c()
-
-  if (!is.null(tpca)) {
-    tpca[, keep := TRUE]
-    pcs <- colnames(tpca)[grep("^PC", colnames(tpca))]
-    for (pc in pcs[1:min(100, length(pcs))]) {
-      fact <- ifelse(pc %in% c("PC1", "PC2", "PC3"), 3, 4)
-      sd_val <- sd(tpca[[pc]])
-      tpca[get(pc) < -sd_val * fact, keep := FALSE]
-      tpca[get(pc) > sd_val * fact, keep := FALSE]
-    }
-    remove_bins <- mat[bin %in% targetbins]$bin[tpca$keep == FALSE]
-  }
-
-  # Background outliers
-  backgroundbins <- target_template[is_target == FALSE]$bin
-  backgroundbins <- backgroundbins[backgroundbins %in% mat$bin]
-
-  if (length(backgroundbins) > 0) {
-    bgpca <- do_pca(mat, backgroundbins)
-    if (!is.null(bgpca)) {
-      bgpca[, keep := TRUE]
-      pcs <- colnames(bgpca)[grep("^PC", colnames(bgpca))]
-      for (pc in pcs[1:min(100, length(pcs))]) {
-        fact <- ifelse(pc %in% c("PC1", "PC2", "PC3"), 3, 4)
-        sd_val <- sd(bgpca[[pc]])
-        bgpca[get(pc) < -sd_val * fact, keep := FALSE]
-        bgpca[get(pc) > sd_val * fact, keep := FALSE]
-      }
-      remove_bins <- c(
-        remove_bins,
-        mat[bin %in% backgroundbins]$bin[bgpca$keep == FALSE]
-      )
-    }
-  }
-
-  # Remove outliers
+  remove_bins <- c(remove_bins, detect_pca_outliers(tpca_initial))
+  remove_bins <- c(remove_bins, detect_pca_outliers(bgpca_initial))
+  
   if (length(remove_bins) > 0) {
     mat <- mat[!bin %in% remove_bins]
     mat_short <- mat_short[!bin %in% remove_bins]
+    targetbins <- get_bins_by_type(target_template, TRUE, mat$bin)
+    backgroundbins <- get_bins_by_type(target_template, FALSE, mat$bin)
   }
-
-  valid_bins <- mat$bin
-
-  # 6. Latent Factors (PCA 2) ------------------------------------------------
+  
+  # 10. Final PCA for latent factors
   set.seed(25)
-  tpca <- do_pca(mat, targetbins)
-  tpca_short <- do_pca(mat_short, targetbins)
-
-  bgpca <- NULL
-  bgpca_short <- NULL
-  if (length(backgroundbins) > 0) {
-    bgpca <- do_pca(mat, backgroundbins)
-    bgpca_short <- do_pca(mat_short, backgroundbins)
-  }
-
-  # We need to return the 'bins_for_mediancorrect' as well
-  bins_meta <- unique(targets[, .(bin, refmedian, refmedian_short)])
-
+  tpca <- perform_pca_on_bins(mat, targetbins)
+  tpca_short <- perform_pca_on_bins(mat_short, targetbins)
+  bgpca <- perform_pca_on_bins(mat, backgroundbins)
+  bgpca_short <- perform_pca_on_bins(mat_short, backgroundbins)
+  
+  # 11. Prepare metadata
+  bins_meta <- prepare_bin_metadata(targets)
+  valid_bins <- extract_valid_bins(mat)
+  
   list(
     tpca = tpca,
     tpca_short = tpca_short,
@@ -240,7 +600,7 @@ compute_reference_pca <- function(reference) {
   )
 }
 
-#' Normalize Sample Data
+#' Normalize Sample Data (Refactored)
 #'
 #' Normalizes the query sample using reference PCA and GC correction.
 #'
@@ -248,192 +608,47 @@ compute_reference_pca <- function(reference) {
 #' @param reference_pca PCA results from compute_reference_pca.
 #' @return Normalized targets.
 #' @importFrom MASS rlm
-#' @importFrom stats predict as.formula loess loess.control median
+#' @importFrom stats predict loess loess.control median
 #' @export
 normalize_sample <- function(targets, reference_pca) {
-  # 1. Prepare Targets -------------------------------------------------------
-  # Filter bins
+  # 1. Filter and prepare targets
   targets <- targets[bin %in% reference_pca$valid_bins]
-
-  # Merge refmedian
   targets <- merge(targets, reference_pca$bins_meta, by = "bin", all.x = TRUE)
-
-  # LogR
-  min1 <- function(x) {
-    x[x < 1] <- 1
-    x[is.na(x)] <- 1
-    x
-  }
-  targets[, rawLR := log2(min1(count))]
-  targets[, rawLR_short := log2(min1(count_short))]
-
-  # Median correct to backbone
-  targets[, rawLR := rawLR - median(rawLR[is_backbone]), by = "is_target"]
-  targets[, rawLR_short := rawLR_short - median(rawLR_short[is_backbone]),
-    by = "is_target"
-  ]
-
-  # 2. Apply Reference Corrections -------------------------------------------
-  # Correct by reference median
+  
+  # 2. Calculate log ratios
+  targets <- calculate_logr(targets, "count", "rawLR")
+  targets <- calculate_logr(targets, "count_short", "rawLR_short")
+  
+  # 3. Median correct to backbone
+  targets <- median_correct_backbone(targets, "rawLR")
+  targets <- median_correct_backbone(targets, "rawLR_short")
+  
+  # 4. Subtract reference median
   targets[, rawLR := rawLR - refmedian]
   targets[, rawLR_short := rawLR_short - refmedian_short]
-
-  # Impute missing (random noise near 0)
-  targets[is.na(rawLR), rawLR := rnorm(.N, mean = 0, sd = 0.01)]
-  targets[is.na(rawLR_short), rawLR_short := rnorm(.N, mean = 0, sd = 0.01)]
-
-  # PCA Correction Function
-  jcorrect <- function(temp, train_ix = NULL) {
-    if (is.null(train_ix)) train_ix <- rep(TRUE, nrow(temp))
-    if (is.logical(train_ix) && length(which(train_ix)) > 20000) {
-      train_ix_idx <- which(train_ix)
-      train_ix <- sample(train_ix_idx, 20000)
-    } else if (length(train_ix) > 20000 && !is.logical(train_ix)) {
-      train_ix <- sample(train_ix, 20000)
-    }
-
-    pcs <- sum(grepl("^PC", colnames(temp)))
-    if (pcs == 0) {
-      return(temp$lr)
-    }
-
-    formula_str <- paste("lr ~ ", paste0("PC", seq_len(min(12, pcs)),
-      collapse = "+"
-    ))
-
-    # Robust Linear Model
-    rlm_mod <- tryCatch(
-      {
-        rlm(as.formula(formula_str), data = temp, subset = train_ix)
-      },
-      error = function(e) NULL
-    )
-
-    if (!is.null(rlm_mod)) {
-      temp[, lr := lr - predict(rlm_mod, temp)]
-    }
-
-    # GC Correct (Loess)
-      # Clean potential NAs/Infs in lr before loess
-      valid_rows <- is.finite(temp$lr) & is.finite(temp$gc)
-      if (sum(valid_rows) > 10) {
-          # Update train_ix to intersect with valid rows
-          train_ix_clean <- train_ix & valid_rows
-          
-          # Adjust span for small datasets
-          n_points <- sum(train_ix_clean)
-          if (n_points > 5) { # Only run if we have enough points
-              span_val <- 0.75
-              if (n_points < 50) span_val <- 1.0 
-              
-              tryCatch({
-                  loess_mod <- loess(lr ~ gc,
-                    data = temp, subset = train_ix_clean, span = span_val,
-                    family = "symmetric", control = loess.control(surface = "interpolate")
-                  )
-                  # Predict safely
-                  preds <- predict(loess_mod, temp)
-                  # Replace NA preds with 0 (no correction)
-                  preds[is.na(preds)] <- 0
-                  temp[, lr := lr - preds]
-              }, error = function(e) warning("Loess failed: ", e$message))
-          }
-      }
-
-
-    return(temp$lr)
-  }
-
-  # 3. PCA & GC Correction ---------------------------------------------------
-  # Apply Correction (Standard)
-  ix <- targets$is_target
-  if (!is.null(reference_pca$tpca)) {
-    # Merge PCA
-    temp <- merge(targets[ix], reference_pca$tpca, by = "bin", all.x = TRUE)
-    temp[, lr := rawLR]
-    corrected <- jcorrect(temp, temp$is_backbone)
-
-    # Assign back safely
-    # We use a join update to ensure alignment
-    temp[, corrected_lr := corrected]
-    targets[temp, log2 := i.corrected_lr, on = "bin"]
-  } else {
-    targets[ix, log2 := rawLR]
-  }
-
-  # Apply Correction (Short)
-  if (!is.null(reference_pca$tpca_short)) {
-    temp <- merge(targets[ix], reference_pca$tpca_short,
-      by = "bin",
-      all.x = TRUE
-    )
-    temp[, lr := rawLR_short]
-    corrected <- jcorrect(temp, temp$is_backbone)
-    temp[, corrected_lr := corrected]
-    targets[temp, log2_short := i.corrected_lr, on = "bin"]
-  } else {
-    targets[ix, log2_short := rawLR_short]
-  }
-
-  # Background correction
-  if (any(!targets$is_target)) {
-    ix_bg <- !targets$is_target
-
-    if (!is.null(reference_pca$bgpca)) {
-      temp <- merge(targets[ix_bg], reference_pca$bgpca,
-        by = "bin",
-        all.x = TRUE
-      )
-      temp[, lr := rawLR]
-      corrected <- jcorrect(temp, temp$is_backbone)
-      temp[, corrected_lr := corrected]
-      targets[temp, log2 := i.corrected_lr, on = "bin"]
-    } else {
-      targets[ix_bg, log2 := rawLR]
-    }
-
-    if (!is.null(reference_pca$bgpca_short)) {
-      temp <- merge(targets[ix_bg], reference_pca$bgpca_short,
-        by = "bin",
-        all.x = TRUE
-      )
-      temp[, lr := rawLR_short]
-      corrected <- jcorrect(temp, temp$is_backbone)
-      temp[, corrected_lr := corrected]
-      targets[temp, log2_short := i.corrected_lr, on = "bin"]
-    } else {
-      targets[ix_bg, log2_short := rawLR_short]
-    }
-  }
-
-  # 4. Clean Up --------------------------------------------------------------
-  # Set min/max
-  targets[log2 < -5, log2 := -5]
-  targets[log2 > 7, log2 := 7]
-  targets[log2_short < -4, log2_short := -4]
-  targets[log2_short > 7, log2_short := 7]
-  # Note: Y chromosome log2 values remain NA (not normalized/not in PCA)
-  # but raw values (count, rawLR) are preserved for inspection
-
-  # 5. Sort Genomically ------------------------------------------------------
-  # Ensure targets are sorted by chromosome and start for correct plotting/downstream analysis
   
-  # Standardize chrom names for sorting
-  # Use clean_chrom_names helper (assumed available in package)
-  # We handle standard 1..22, X, Y. Others sort at end.
+  # 5. Impute missing values
+  targets <- impute_missing_logr(targets, "rawLR")
+  targets <- impute_missing_logr(targets, "rawLR_short")
   
-  chrom_levels <- c(as.character(1:22), "X", "Y")
+  # 6. Apply normalization corrections (targets)
+  targets <- apply_normalization_corrections(targets, reference_pca$tpca,
+                                             "rawLR", "log2", TRUE)
+  targets <- apply_normalization_corrections(targets, reference_pca$tpca_short,
+                                             "rawLR_short", "log2_short", TRUE)
   
-  # Use temporary columns for sorting
-  targets[, sort_chr := as.character(chromosome)]
-  targets[, sort_chr := stringr::str_remove(sort_chr, "^chr")]
-  targets[, sort_fac := factor(sort_chr, levels = chrom_levels)]
+  # 7. Apply normalization corrections (background)
+  targets <- apply_normalization_corrections(targets, reference_pca$bgpca,
+                                             "rawLR", "log2", FALSE)
+  targets <- apply_normalization_corrections(targets, reference_pca$bgpca_short,
+                                             "rawLR_short", "log2_short", FALSE)
   
-  # Sort: Factor first (NA last), then Start
-  data.table::setorder(targets, sort_fac, start, na.last = TRUE)
+  # 8. Clamp values
+  targets <- clamp_logr_values(targets, "log2", -5, 7)
+  targets <- clamp_logr_values(targets, "log2_short", -4, 7)
   
-  # Clean temp
-  targets[, c("sort_chr", "sort_fac") := NULL]
-
+  # 9. Sort genomically
+  targets <- sort_genomically(targets)
+  
   return(targets)
 }

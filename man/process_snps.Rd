@@ -9,11 +9,14 @@ process_snps(vcf_file, targets, sample_name = NULL)
 \arguments{
 \item{vcf_file}{Path to the VCF file.}
 
+\item{targets}{A data.table of target regions.}
+
 \item{sample_name}{Optional sample name to match in VCF columns.}
 }
 \value{
 A data.table containing processed SNP information, or NULL if processing fails.
 }
 \description{
-Loads and processes SNPs from a VCF file, calculating allele ratios and mapping to bins.
+Main wrapper: Loads and processes SNPs from a VCF file, calculates allele 
+ratios, and maps the results to genomic target bins.
 }

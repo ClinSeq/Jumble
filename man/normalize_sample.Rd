@@ -2,7 +2,7 @@
 % Please edit documentation in R/normalize.R
 \name{normalize_sample}
 \alias{normalize_sample}
-\title{Normalize Sample Data}
+\title{Normalize Sample Data (Refactored)}
 \usage{
 normalize_sample(targets, reference_pca)
 }

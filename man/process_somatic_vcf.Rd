@@ -14,8 +14,9 @@ process_somatic_vcf(vcf_file, reference, genome = "hg19")
 \item{genome}{Genome build version ("hg19" or "hg38").}
 }
 \value{
-A data.table with somatic mutations (chromosome, start, AF, bin).
+A data.table with somatic mutations (chromosome, start, AF, bin), or NULL on failure.
 }
 \description{
-Parses a somatic VCF file and maps variants to reference bins.
+Parses a somatic VCF file, extracts allele depths, annotates with VEP CSQ fields 
+and internal hotspots, and maps variants to reference bins.
 }

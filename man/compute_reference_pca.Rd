@@ -2,7 +2,7 @@
 % Please edit documentation in R/normalize.R
 \name{compute_reference_pca}
 \alias{compute_reference_pca}
-\title{Compute Reference PCA}
+\title{Compute Reference PCA (Refactored)}
 \usage{
 compute_reference_pca(reference)
 }
@@ -13,6 +13,5 @@ compute_reference_pca(reference)
 A list containing PCA results for targets and background.
 }
 \description{
-Performs PCA on the reference dataset to identify latent features for
-normalization.
+Performs PCA on reference dataset to identify latent features for normalization.
 }
