@@ -354,15 +354,21 @@ compute_gis_and_maf <- function(targets, snp_table, reference) {
 #' @param somatic Somatic variants table
 #' @keywords internal
 generate_plots <- function(targets, segments, reference, output_dir, 
-                           sample_name, snp_table, gis_table, somatic) {
+                           sample_name, snp_table, gis_table, somatic, qc_metrics = NULL) {
   message("Plotting...")
   
   annotate_targets(targets)
   
+  plot_title <- sample_name
+  if (!is.null(qc_metrics)) {
+    plot_title <- sprintf("%s | GC-Bias: %.2f | Noise: %.2f | Waviness: %.2f", 
+                          sample_name, qc_metrics$gc_bias, qc_metrics$noise, qc_metrics$waviness)
+  }
+  
   plot_file <- file.path(output_dir, paste0(sample_name, ".png"))
   plot_results(targets, segments,
                reference = reference,
-               output_file = plot_file, title = sample_name,
+               output_file = plot_file, title = plot_title,
                snp_table = snp_table,
                gis_table = gis_table,
                somatic_table = somatic
@@ -387,13 +393,14 @@ generate_plots <- function(targets, segments, reference, output_dir,
 #' @param segments Segments data.table
 #' @param snp_table SNP table
 #' @param gis_table GIS table
+#' @param qc_metrics QC metrics table
 #' @param output_dir Output directory
 #' @param sample_name Sample name
 #' @param bam_file BAM file path
 #' @param reference_file Reference file path
 #' @param snp_vcf SNP VCF path
 #' @keywords internal
-save_analysis_results <- function(targets, segments, snp_table, gis_table,
+save_analysis_results <- function(targets, segments, snp_table, gis_table, qc_metrics,
                                   output_dir, sample_name, bam_file,
                                   reference_file, snp_vcf) {
   message("Saving results...")
@@ -411,22 +418,7 @@ save_analysis_results <- function(targets, segments, snp_table, gis_table,
     data.table::fwrite(snp_table, snp_output_file, sep = ",")
   }
   
-  # QC metrics
-  contamination <- if (!is.null(snp_table)) {
-    estimate_contamination(snp_table)
-  } else {
-    NA_real_
-  }
-  
-  qc_metrics <- compute_qc_metrics(
-    targets = targets,
-    bam_file = bam_file,
-    reference_file = reference_file,
-    snp_vcf = snp_vcf,
-    sample_name = sample_name,
-    contamination = contamination
-  )
-  
+  # Save QC metrics
   qc_output_file <- file.path(output_dir, paste0(sample_name, ".qc.csv"))
   write_qc_metrics(qc_metrics, qc_output_file)
   
@@ -512,6 +504,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name) {
 #' @param somatic_vcf Optional path to a VCF file with somatic variants.
 #' @param cores Number of cores (currently unused).
 #' @param genome Genome version.
+#' @param correction String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).
 #' @param ... Additional arguments.
 #' @return A list containing results (targets, segments, etc.).
 #' @importFrom data.table fread fwrite
@@ -519,7 +512,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name) {
 #' @export
 run_jumble <- function(bam_file, reference_file, output_dir = ".",
                        snp_vcf = NULL, somatic_vcf = NULL, cores = 1, 
-                       genome = NULL, ...) {
+                       genome = NULL, correction = "optim", ...) {
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   
   # 1. Load Reference
@@ -554,7 +547,7 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   
   # 7. Normalize
   message("Normalizing...")
-  targets <- normalize_sample(targets, ref_pca)
+  targets <- normalize_sample(targets, ref_pca, correction)
   
   # Check if WGS
   is_wgs <- FALSE
@@ -589,12 +582,28 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
     somatic <- process_somatic_vcf(somatic_vcf, reference, genome = use_genome)
   }
   
-  # 10. Plot
-  generate_plots(targets, segments, reference, output_dir, sample_name,
-                 snp_table, gis_table, somatic)
+  # 10. Compute QC Metrics
+  contamination <- if (!is.null(snp_table)) {
+    estimate_contamination(snp_table)
+  } else {
+    NA_real_
+  }
   
-  # 11. Save Results
-  save_analysis_results(targets, segments, snp_table, gis_table,
+  qc_metrics <- compute_qc_metrics(
+    targets = targets,
+    bam_file = bam_file,
+    reference_file = reference_file,
+    snp_vcf = snp_vcf,
+    sample_name = sample_name,
+    contamination = contamination
+  )
+  
+  # 11. Plot
+  generate_plots(targets, segments, reference, output_dir, sample_name,
+                 snp_table, gis_table, somatic, qc_metrics)
+  
+  # 12. Save Results
+  save_analysis_results(targets, segments, snp_table, gis_table, qc_metrics,
                         output_dir, sample_name, bam_file,
                         reference_file, snp_vcf)
   

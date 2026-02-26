@@ -88,6 +88,72 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
   # Mean count across all targets
   qc$mean_target_count <- mean(target_bins$count, na.rm = TRUE)
 
+  # 5. Noise (Linear MAPD) ---------------------------------------------------
+  if (nrow(target_bins) >= 2 && "log2" %in% names(target_bins)) {
+    valid_log2 <- target_bins$log2[is.finite(target_bins$log2)]
+    if (length(valid_log2) >= 2) {
+      mapd <- median(abs(diff(valid_log2)))
+      qc$noise <- round((2^mapd) - 1, 2)
+    } else {
+      qc$noise <- NA_real_
+    }
+  } else {
+    qc$noise <- NA_real_
+  }
+
+  # 6. Waviness (1Mb Window Smoothed SD) -------------------------------------
+  if (nrow(target_bins) > 0 && "log2" %in% names(target_bins)) {
+    w_dt <- target_bins[is.finite(log2), .(chromosome, start, log2)]
+    if (nrow(w_dt) > 0) {
+      # Genomically sort to ensure runmed works correctly along the genome
+      chrom_levels <- c(as.character(1:22), "X", "Y")
+      w_dt[, sort_chr := stringr::str_remove(as.character(chromosome), "^chr")]
+      w_dt[, sort_fac := factor(sort_chr, levels = chrom_levels)]
+      data.table::setorder(w_dt, sort_fac, start, na.last = TRUE)
+
+      # Ensure sufficient points for smoothing
+      if (nrow(w_dt) >= 11) {
+        w_dt[, smoothed_log2 := stats::runmed(log2, k = 11, na.action = "na.omit")]
+      } else {
+        w_dt[, smoothed_log2 := log2]
+      }
+
+      # Segment into 1Mb windows
+      w_dt[, window_seq := floor(start / 1e6)]
+      w_dt[, window_id := paste0(sort_chr, "_", window_seq)]
+
+      # Compute SD per window
+      window_stats <- w_dt[, .(
+        N = sum(!is.na(smoothed_log2)),
+        sd_smoothed = {
+          if (sum(!is.na(smoothed_log2)) >= 5) {
+            stats::sd(smoothed_log2, na.rm = TRUE)
+          } else {
+            NA_real_
+          }
+        }
+      ), by = window_id]
+
+      # Filter out NA SDs/too-small windows
+      valid_windows <- window_stats[!is.na(sd_smoothed) & N >= 5]
+      
+      if (nrow(valid_windows) > 0) {
+        qc$waviness <- round(weighted_median(valid_windows$sd_smoothed, valid_windows$N), 2)
+      } else {
+        qc$waviness <- NA_real_
+      }
+    } else {
+      qc$waviness <- NA_real_
+    }
+  } else {
+    qc$waviness <- NA_real_
+  }
+
+  # Round gc_bias
+  if (!is.na(qc$gc_bias)) {
+    qc$gc_bias <- round(qc$gc_bias, 2)
+  }
+
   return(qc)
 }
 

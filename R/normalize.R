@@ -71,11 +71,23 @@ calculate_logr <- function(targets, count_col, output_col) {
   targets
 }
 
+weighted_median <- function(x, w) {
+  valid <- is.finite(x) & is.finite(w) & w > 0
+  if (sum(valid) == 0) return(NA_real_)
+  x <- x[valid]
+  w <- w[valid]
+  o <- order(x)
+  x <- x[o]
+  w <- w[o]
+  p <- cumsum(w) / sum(w)
+  x[which(p >= 0.5)[1]]
+}
+
 #' Median Correct by Backbone
 #'
-#' Subtract median of backbone bins from each sample/target group
+#' Subtract weighted median of backbone bins from each sample/target group
 #'
-#' @param targets data.table with is_backbone and is_target columns
+#' @param targets data.table with backbone_weight and is_target columns
 #' @param lr_col Column name with log ratio values
 #' @return Modified targets
 #' @keywords internal
@@ -83,7 +95,7 @@ median_correct_backbone <- function(targets, lr_col) {
   # Ensure we have a proper copy (avoids data.table shallow copy warning)
   targets <- data.table::copy(targets)
   
-  targets[, (lr_col) := get(lr_col) - median(get(lr_col)[is_backbone]),
+  targets[, (lr_col) := get(lr_col) - weighted_median(get(lr_col), backbone_weight),
     by = c("sample", "is_target")
   ]
   targets
@@ -91,17 +103,20 @@ median_correct_backbone <- function(targets, lr_col) {
 
 #' Detect Sample Gender
 #'
-#' Infer sample gender from X and Y chromosome medians
+#' Infer sample gender from X chromosome median (for X correction)
+#' and Y chromosome median (for Y correction), independently.
+#' Follows the original jumble logic where X-based and Y-based gender
+#' assignments are used for their respective chromosome corrections.
 #'
 #' @param targets data.table
 #' @param lr_col Column name with log ratio values
-#' @return data.table with male, xmedian, ymedian columns
+#' @return data.table with male_from_x, male_from_y columns
 #' @keywords internal
 detect_sample_gender <- function(targets, lr_col) {
   # Ensure we have a proper copy (avoids data.table shallow copy warning)
   targets <- data.table::copy(targets)
   
-  # X chromosome median
+  # X chromosome median (untiled bins only, as in original target bins)
   targets[, xmedian := median(get(lr_col)[chromosome == "X" & is_tiled == FALSE],
     na.rm = TRUE
   ), by = "sample"]
@@ -113,18 +128,16 @@ detect_sample_gender <- function(targets, lr_col) {
   ]
   targets[, male_from_y := 2^ymedian > 0.25]
   
-  # Prefer Y detection, fallback to X
-  targets[, male := male_from_y]
-  targets[is.na(male), male := male_from_x]
-  
   targets
 }
 
 #' Apply Sex Chromosome Corrections
 #'
-#' Adjust X and Y chromosome log ratios for males (nonPAR regions)
+#' Adjust X chromosome using X-based gender detection and
+#' Y chromosome using Y-based gender detection, independently.
+#' This matches the original jumble logic.
 #'
-#' @param targets data.table with male gender assignment
+#' @param targets data.table with male_from_x and male_from_y columns
 #' @param lr_col Column name with log ratio values
 #' @return Modified targets with sex-chromosome-corrected values
 #' @keywords internal
@@ -133,24 +146,22 @@ correct_sex_chromosomes <- function(targets, lr_col) {
   targets <- data.table::copy(targets)
   
   # Hard-coded PAR (Pseudoautosomal Region) boundaries
-  # X PAR: hg38 positions 2.7e6 - 154.93e6
   targets[, nonPA := chromosome %in% c("X") & end > 2.70e6 & start < 154.93e6]
   
-  # X chromosome correction for males
-  if (any(targets$male == TRUE, na.rm = TRUE)) {
-    targets[chromosome == "X" & male == TRUE & nonPA, 
+  # X chromosome correction for males (using X-based gender)
+  if (any(targets$male_from_x == TRUE, na.rm = TRUE)) {
+    targets[chromosome == "X" & male_from_x == TRUE & nonPA, 
             (lr_col) := get(lr_col) + 1]
   }
   
-  # Y chromosome correction for males
-  # Hard-coded PA boundary at 28.79e6
-  if (any(targets$male == TRUE, na.rm = TRUE)) {
-    targets[male == TRUE & chromosome == "Y" & end < 28.79e6, 
+  # Y chromosome correction for males (using Y-based gender)
+  if (any(targets$male_from_y == TRUE, na.rm = TRUE)) {
+    targets[male_from_y == TRUE & chromosome == "Y" & end < 28.79e6, 
             (lr_col) := get(lr_col) + 1]
   }
   
-  # Y values to NA for females
-  targets[chromosome == "Y" & male == FALSE, (lr_col) := NA]
+  # Y values to NA for females (using Y-based gender)
+  targets[chromosome == "Y" & male_from_y == FALSE, (lr_col) := NA]
   
   targets
 }
@@ -163,8 +174,11 @@ correct_sex_chromosomes <- function(targets, lr_col) {
 cleanup_gender_columns <- function(targets) {
   # Ensure we have a proper copy (avoids data.table shallow copy warning)
   targets <- data.table::copy(targets)
-  targets[, c("xmedian", "ymedian", "male_from_x", "male_from_y", 
-              "male", "nonPA") := NULL]
+  cols_to_remove <- intersect(
+    c("xmedian", "ymedian", "male_from_x", "male_from_y", "male", "nonPA"),
+    names(targets)
+  )
+  if (length(cols_to_remove) > 0) targets[, (cols_to_remove) := NULL]
   targets
 }
 
@@ -238,33 +252,6 @@ perform_pca_on_bins <- function(matrix, bin_list) {
   dt
 }
 
-#' Detect and Flag PCA Outliers
-#'
-#' Identify bins with extreme PCA scores (outliers)
-#'
-#' @param pca_data data.table from perform_pca_on_bins
-#' @param sd_factor Multiplier for standard deviation threshold
-#' @param top_pcs Number of PCs to inspect (default 100)
-#' @return Vector of outlier bins (empty if none)
-#' @keywords internal
-detect_pca_outliers <- function(pca_data, sd_factor = 3, top_pcs = 100) {
-  if (is.null(pca_data)) return(c())
-  
-  pca_data[, keep := TRUE]
-  pcs <- colnames(pca_data)[grep("^PC", colnames(pca_data))]
-  
-  for (pc in pcs[1:min(top_pcs, length(pcs))]) {
-    # More lenient for higher PCs
-    factor <- ifelse(pc %in% c("PC1", "PC2", "PC3"), 3, 4)
-    sd_val <- stats::sd(pca_data[[pc]], na.rm = TRUE)
-    
-    pca_data[get(pc) < -sd_val * factor, keep := FALSE]
-    pca_data[get(pc) > sd_val * factor, keep := FALSE]
-  }
-  
-  pca_data[keep == FALSE]$bin
-}
-
 #' Prepare Bin Metadata for Correction
 #'
 #' Extract reference median values for later normalization
@@ -302,6 +289,56 @@ get_bins_by_type <- function(target_template, is_target_bool, valid_bins = NULL)
     bins <- bins[bins %in% valid_bins]
   }
   bins
+}
+
+#' Apply PCA Correction to Values using Optimisation
+#'
+#' L1 + Total Variation penalty optimisation using Nelder-Mead
+#'
+#' @param data data.table with 'lr' and PC columns
+#' @param ratio TV penalty ratio (default 1.0 based on benchmarking)
+#' @return Corrected log ratio vector
+#' @keywords internal
+correct_by_optim <- function(data, ratio = 1.0) {
+  pcs <- sum(grepl("^PC", colnames(data)))
+  if (pcs == 0) return(data$lr)
+
+  # Extract PC matrix
+  pc_cols <- paste0("PC", seq_len(pcs))
+  pc_mat <- as.matrix(data[, pc_cols, with = FALSE])
+  lr_vec <- data$lr
+
+  # Filter out NAs for optimization stability
+  keep <- is.finite(lr_vec) & complete.cases(pc_mat)
+  pc_mat_opt <- pc_mat[keep, , drop = FALSE]
+  lr_vec_opt <- lr_vec[keep]
+
+  # Cost function: L1 norm + Total Variation
+  make_objective <- function(pm, lv, r) {
+    function(mc) {
+      n <- length(mc)
+      new <- lv - as.numeric(pm[, seq_len(n), drop = FALSE] %*% mc)
+      sum(abs(new)) + r * sum(abs(diff(new)))
+    }
+  }
+  obj_fn <- make_objective(pc_mat_opt, lr_vec_opt, ratio)
+
+  # Progressive coefficient building: start small, expand
+  n <- min(3, pcs)
+  mc <- rep(0, n)
+  mc <- stats::optim(par = mc, fn = obj_fn, method = "Nelder-Mead")$par
+
+  if (pcs > n) {
+    while (n < pcs) {
+      old_n <- n
+      n <- min(n + 10, pcs)
+      mc <- c(mc, rep(0, n - old_n))
+      mc <- stats::optim(par = mc, fn = obj_fn, method = "Nelder-Mead")$par
+    }
+  }
+
+  correction <- as.numeric(pc_mat[, seq_len(length(mc)), drop = FALSE] %*% mc)
+  data$lr - correction
 }
 
 #' Apply PCA Correction to Values
@@ -350,7 +387,7 @@ correct_by_pca <- function(data, train_indices = NULL) {
 #'
 #' Loess smoothing correction for GC content bias
 #'
-#' @param data data.table with 'lr' and 'gc' columns
+#' @param data data.table with 'lr', 'gc' and 'backbone_weight' columns
 #' @param train_indices Logical or numeric indices for training
 #' @param span Loess span parameter
 #' @return Corrected log ratio vector
@@ -367,18 +404,27 @@ correct_by_gc <- function(data, train_indices = NULL, span = 0.75) {
   n_points <- sum(train_indices_clean)
   if (n_points <= 5) return(data$lr)  # Not enough points for loess
   
+  w <- if ("backbone_weight" %in% names(data)) data$backbone_weight[train_indices_clean] else NULL
+  
   # Adjust span for small datasets
   if (n_points < 50) span <- 1.0
   
+  # Fit loess on valid training points
   tryCatch(
     {
-      loess_mod <- stats::loess(lr ~ gc,
-        data = data,
-        subset = train_indices_clean,
-        span = span,
-        family = "symmetric",
-        control = stats::loess.control(surface = "interpolate")
-      )
+      if (!is.null(w)) {
+        loess_mod <- stats::loess(lr ~ gc, 
+          data = data, subset = train_indices_clean, weights = w,
+          span = span, family = "symmetric",
+          control = stats::loess.control(surface = "interpolate")
+        )
+      } else {
+        loess_mod <- stats::loess(lr ~ gc, 
+          data = data, subset = train_indices_clean,
+          span = span, family = "symmetric",
+          control = stats::loess.control(surface = "interpolate")
+        )
+      }
       
       # Predict and handle NAs
       preds <- stats::predict(loess_mod, data)
@@ -397,15 +443,20 @@ correct_by_gc <- function(data, train_indices = NULL, span = 0.75) {
 #'
 #' @param data data.table with lr, gc, and PCA component columns
 #' @param train_indices Logical indices for training subset
+#' @param correction String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)
 #' @return Corrected log ratio vector
 #' @keywords internal
-apply_combined_corrections <- function(data, train_indices = NULL) {
+apply_combined_corrections <- function(data, train_indices = NULL, correction = "optim") {
   if (is.null(train_indices)) {
     train_indices <- rep(TRUE, nrow(data))
   }
   
   # 1. PCA correction
-  corrected <- correct_by_pca(data, train_indices)
+  if (correction == "optim") {
+    corrected <- correct_by_optim(data, ratio = 1.0)
+  } else {
+    corrected <- correct_by_pca(data, train_indices)
+  }
   data[, lr := corrected]
   
   # 2. GC correction
@@ -423,11 +474,13 @@ apply_combined_corrections <- function(data, train_indices = NULL) {
 #' @param lr_col Column name with log ratios
 #' @param output_col Column name for corrected output
 #' @param is_target_bool Logical: TRUE for targets, FALSE for background
+#' @param correction String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)
 #' @return Modified targets with output_col updated
 #' @keywords internal
 apply_normalization_corrections <- function(targets, pca_data, 
                                            lr_col, output_col, 
-                                           is_target_bool) {
+                                           is_target_bool,
+                                           correction = "optim") {
   if (is.null(pca_data)) {
     targets[[output_col]] <- targets[[lr_col]]
     return(targets)
@@ -442,7 +495,7 @@ apply_normalization_corrections <- function(targets, pca_data,
   data[, lr := get(lr_col)]
   
   # Apply corrections
-  corrected <- apply_combined_corrections(data, data$is_backbone)
+  corrected <- apply_combined_corrections(data, data$is_backbone, correction)
   
   # Assign back
   data[, corrected_lr := corrected]
@@ -562,24 +615,7 @@ compute_reference_pca <- function(reference) {
   targetbins <- get_bins_by_type(target_template, TRUE, mat$bin)
   backgroundbins <- get_bins_by_type(target_template, FALSE, mat$bin)
   
-  # 9. Initial PCA for outlier detection
-  set.seed(25)
-  tpca_initial <- perform_pca_on_bins(mat, targetbins)
-  bgpca_initial <- perform_pca_on_bins(mat, backgroundbins)
-  
-  # Detect and remove outliers
-  remove_bins <- c()
-  remove_bins <- c(remove_bins, detect_pca_outliers(tpca_initial))
-  remove_bins <- c(remove_bins, detect_pca_outliers(bgpca_initial))
-  
-  if (length(remove_bins) > 0) {
-    mat <- mat[!bin %in% remove_bins]
-    mat_short <- mat_short[!bin %in% remove_bins]
-    targetbins <- get_bins_by_type(target_template, TRUE, mat$bin)
-    backgroundbins <- get_bins_by_type(target_template, FALSE, mat$bin)
-  }
-  
-  # 10. Final PCA for latent factors
+  # 9. Perform PCA for latent factors
   set.seed(25)
   tpca <- perform_pca_on_bins(mat, targetbins)
   tpca_short <- perform_pca_on_bins(mat_short, targetbins)
@@ -606,11 +642,12 @@ compute_reference_pca <- function(reference) {
 #'
 #' @param targets Query sample data (data.table).
 #' @param reference_pca PCA results from compute_reference_pca.
+#' @param correction String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)
 #' @return Normalized targets.
 #' @importFrom MASS rlm
 #' @importFrom stats predict loess loess.control median
 #' @export
-normalize_sample <- function(targets, reference_pca) {
+normalize_sample <- function(targets, reference_pca, correction = "optim") {
   # 1. Filter and prepare targets
   targets <- targets[bin %in% reference_pca$valid_bins]
   targets <- merge(targets, reference_pca$bins_meta, by = "bin", all.x = TRUE)
@@ -633,15 +670,15 @@ normalize_sample <- function(targets, reference_pca) {
   
   # 6. Apply normalization corrections (targets)
   targets <- apply_normalization_corrections(targets, reference_pca$tpca,
-                                             "rawLR", "log2", TRUE)
+                                             "rawLR", "log2", TRUE, correction)
   targets <- apply_normalization_corrections(targets, reference_pca$tpca_short,
-                                             "rawLR_short", "log2_short", TRUE)
+                                             "rawLR_short", "log2_short", TRUE, correction)
   
   # 7. Apply normalization corrections (background)
   targets <- apply_normalization_corrections(targets, reference_pca$bgpca,
-                                             "rawLR", "log2", FALSE)
+                                             "rawLR", "log2", FALSE, correction)
   targets <- apply_normalization_corrections(targets, reference_pca$bgpca_short,
-                                             "rawLR_short", "log2_short", FALSE)
+                                             "rawLR_short", "log2_short", FALSE, correction)
   
   # 8. Clamp values
   targets <- clamp_logr_values(targets, "log2", -5, 7)

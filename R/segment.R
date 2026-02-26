@@ -10,11 +10,18 @@
 #' @importFrom data.table as.data.table :=
 #' @keywords internal
 run_cbs <- function(targets, alpha) {
+  # Copy to avoid mutating caller's data.table by reference
+  # data.table::copy is not always sufficient if list columns exist, but for basic columns
+  # avoiding `:=` on the immediate argument is key. We create a strict new data.table.
+  targets <- data.table::as.data.table(targets)
+  targets <- data.table::copy(targets)
+  
   # Standardize and sort for PSCBS
-  targets[, chromosome := as.character(chromosome)]
+  # Avoid mutating the original 'chromosome' column type by reference
+  targets$chromosome <- as.character(targets$chromosome)
   targets[chromosome == "X", chromosome := "23"]
   targets[chromosome == "Y", chromosome := "24"]
-  targets[, chromosome := as.numeric(chromosome)]
+  targets$chromosome <- as.numeric(targets$chromosome)
   
   # Note: This ordering creates a new data.table, breaking reference semantics
   targets <- targets[order(chromosome, start)]

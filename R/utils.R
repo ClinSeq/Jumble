@@ -34,43 +34,58 @@ detect_genome <- function(bam_file) {
   return(NULL)
 }
 
+#' Compute Backbone Weights
+#'
+#' Computes continuous weights for bins to be used in regression training (backbone).
+#' Prevents densely targeted genes from dominating the training set.
+#' - Bins with no gene: weight = 1.0
+#' - Bins in genes with <= 25 bins: weight = 1.0
+#' - Bins in genes with > 25 bins: weight = 25 / n
+#' - Non-autosomal bins (X, Y): weight = 0.0
+#'
+#' @param targets Data.table containing bin information.
+#' @return A numeric vector of weights.
+#' @export
+compute_backbone_weights <- function(targets) {
+  weights <- rep(1.0, nrow(targets))
+  
+  # Non-autosomal bins get 0 weight for backbone training
+  auto_chroms <- c(as.character(1:22), paste0("chr", 1:22))
+  weights[!targets$chromosome %in% auto_chroms] <- 0.0
+  
+  if ("gene" %in% names(targets)) {
+    # Count bins per gene
+    gene_counts <- table(targets$gene)
+    # Exclude empty gene names
+    gene_counts <- gene_counts[names(gene_counts) != ""]
+    
+    # Identify large genes
+    large_genes <- names(gene_counts)[gene_counts > 25]
+    
+    for (g in large_genes) {
+      n_bins <- gene_counts[[g]]
+      idx <- which(targets$gene == g)
+      weights[idx] <- 25.0 / n_bins
+    }
+  }
+  
+  return(weights)
+}
+
 #' Define Backbone Bins
 #'
 #' Identifies bins to be used as backbone for normalization regression training.
-#' All autosomal bins are included by default. Densely-targeted genes (BRCA2,
-#' PTEN) are capped to a maximum number of backbone bins to prevent their
-#' gene bodies from dominating the regression fit when they harbour CNAs.
+#' Replaces the old binary logic with a continuous weight column.
 #'
 #' @param targets Data.table containing bin information with 'chromosome',
 #'   'bin', and optionally 'gene' columns.
-#' @return Targets with 'is_backbone' column.
+#' @return Targets with 'backbone_weight' column.
 #' @importFrom data.table copy
 #' @export
 define_backbone <- function(targets) {
-  # 1. Default Backbone ------------------------------------------------------
-  # All autosomes are backbone candidates
-  targets[, is_backbone := chromosome %in% c(as.character(1:22), 1:22)]
-
-  # 2. Cap Dense Genes -------------------------------------------------------
-  # Restrict the contribution of densely-targeted genes to prevent them from
-  # dominating the regression training set. Hard-coded for BRCA2 and PTEN as
-  # per the published Jumble method.
-  max_in_b <- 10
-  genes_to_cap <- c("BRCA2", "PTEN")
-
-  if ("gene" %in% names(targets) && any(targets$gene != "")) {
-    set.seed(25)
-    for (g in genes_to_cap) {
-      genebins <- targets[gene == g]$bin
-      n <- length(genebins)
-      if (n > max_in_b) {
-        targets[bin %in% genebins, is_backbone := FALSE]
-        genebins <- sample(genebins, max_in_b, replace = FALSE)
-        targets[bin %in% genebins, is_backbone := TRUE]
-      }
-    }
-  }
-
+  # Add continuous backbone weights (replaces binary is_backbone)
+  targets[, backbone_weight := compute_backbone_weights(targets)]
+  
   return(targets)
 }
 
