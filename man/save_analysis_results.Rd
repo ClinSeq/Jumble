@@ -9,6 +9,7 @@ save_analysis_results(
   segments,
   snp_table,
   gis_table,
+  qc_metrics,
   output_dir,
   sample_name,
   bam_file,
@@ -24,6 +25,8 @@ save_analysis_results(
 \item{snp_table}{SNP table}
 
 \item{gis_table}{GIS table}
+
+\item{qc_metrics}{QC metrics table}
 
 \item{output_dir}{Output directory}
 

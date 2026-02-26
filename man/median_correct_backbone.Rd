@@ -7,7 +7,7 @@
 median_correct_backbone(targets, lr_col)
 }
 \arguments{
-\item{targets}{data.table with is_backbone and is_target columns}
+\item{targets}{data.table with backbone_weight and is_target columns}
 
 \item{lr_col}{Column name with log ratio values}
 }
@@ -15,6 +15,6 @@ median_correct_backbone(targets, lr_col)
 Modified targets
 }
 \description{
-Subtract median of backbone bins from each sample/target group
+Subtract weighted median of backbone bins from each sample/target group
 }
 \keyword{internal}

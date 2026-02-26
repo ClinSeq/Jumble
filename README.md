@@ -4,6 +4,12 @@
 
 Jumble is an R package for copy number analysis, offering functions for counting reads, building reference panels, and calling copy number alterations (CNA). It supports both Targeted Sequencing (gene panels) and Whole Genome Sequencing (WGS).
 
+
+# PROTOTYPE
+
+This package is a re-implementation of the legacy *Jumble* R-scripts. It is currently in a prototype state and may not be stable. It may also be incomplete. Use at your own risk.
+
+
 ## Features
 
 *   **Copy Number Calling**: Segmented copy number plotting and calling.

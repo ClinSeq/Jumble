@@ -4,7 +4,7 @@
 \alias{get_ensembl_mart}
 \title{Get Ensembl Mart Setup}
 \usage{
-get_ensembl_mart(genome, mirror = "useast")
+get_ensembl_mart(genome, mirror = NULL)
 }
 \description{
 Get Ensembl Mart Setup

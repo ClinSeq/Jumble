@@ -4,12 +4,14 @@
 \alias{apply_combined_corrections}
 \title{Apply Combined PCA and GC Corrections}
 \usage{
-apply_combined_corrections(data, train_indices = NULL)
+apply_combined_corrections(data, train_indices = NULL, correction = "optim")
 }
 \arguments{
 \item{data}{data.table with lr, gc, and PCA component columns}
 
 \item{train_indices}{Logical indices for training subset}
+
+\item{correction}{String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)}
 }
 \value{
 Corrected log ratio vector

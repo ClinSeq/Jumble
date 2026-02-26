@@ -3,6 +3,7 @@
 export(annotate_targets)
 export(build_reference)
 export(clean_chrom_names)
+export(compute_backbone_weights)
 export(compute_gis_table)
 export(compute_qc_metrics)
 export(compute_reference_pca)

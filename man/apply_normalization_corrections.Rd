@@ -9,7 +9,8 @@ apply_normalization_corrections(
   pca_data,
   lr_col,
   output_col,
-  is_target_bool
+  is_target_bool,
+  correction = "optim"
 )
 }
 \arguments{
@@ -22,6 +23,8 @@ apply_normalization_corrections(
 \item{output_col}{Column name for corrected output}
 
 \item{is_target_bool}{Logical: TRUE for targets, FALSE for background}
+
+\item{correction}{String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)}
 }
 \value{
 Modified targets with output_col updated

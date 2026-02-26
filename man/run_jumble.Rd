@@ -12,6 +12,7 @@ run_jumble(
   somatic_vcf = NULL,
   cores = 1,
   genome = NULL,
+  correction = "optim",
   ...
 )
 }
@@ -29,6 +30,8 @@ run_jumble(
 \item{cores}{Number of cores (currently unused).}
 
 \item{genome}{Genome version.}
+
+\item{correction}{String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).}
 
 \item{...}{Additional arguments.}
 }

@@ -7,7 +7,7 @@
 correct_by_gc(data, train_indices = NULL, span = 0.75)
 }
 \arguments{
-\item{data}{data.table with 'lr' and 'gc' columns}
+\item{data}{data.table with 'lr', 'gc' and 'backbone_weight' columns}
 
 \item{train_indices}{Logical or numeric indices for training}
 

@@ -12,9 +12,12 @@ detect_sample_gender(targets, lr_col)
 \item{lr_col}{Column name with log ratio values}
 }
 \value{
-data.table with male, xmedian, ymedian columns
+data.table with male_from_x, male_from_y columns
 }
 \description{
-Infer sample gender from X and Y chromosome medians
+Infer sample gender from X chromosome median (for X correction)
+and Y chromosome median (for Y correction), independently.
+Follows the original jumble logic where X-based and Y-based gender
+assignments are used for their respective chromosome corrections.
 }
 \keyword{internal}

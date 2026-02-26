@@ -4,12 +4,14 @@
 \alias{normalize_sample}
 \title{Normalize Sample Data (Refactored)}
 \usage{
-normalize_sample(targets, reference_pca)
+normalize_sample(targets, reference_pca, correction = "optim")
 }
 \arguments{
 \item{targets}{Query sample data (data.table).}
 
 \item{reference_pca}{PCA results from compute_reference_pca.}
+
+\item{correction}{String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)}
 }
 \value{
 Normalized targets.

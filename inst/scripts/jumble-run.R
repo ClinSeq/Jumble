@@ -26,13 +26,17 @@ option_list <- list(
     make_option(c("-a", "--alpha"),
         type = "double", default = 0.001,
         help = "Segmentation alpha parameter [default: %default]", metavar = "N"
+    ),
+    make_option(c("-c", "--correction"),
+        type = "character", default = "optim",
+        help = "Correction method to use: 'optim' (L1+TV, default) or 'rlm' (Robust LM)", metavar = "METHOD"
     )
 )
 
 opt_parser <- OptionParser(
     usage = "Usage: %prog [options]",
     option_list = option_list,
-    description = "\nRun Jumble copy number analysis.\n\nExamples:\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -o output/\n  Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz"
+    description = "\nRun Jumble copy number analysis.\n\nExamples:\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -c optim -o output/\n  Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz"
 )
 
 opt <- parse_args(opt_parser)
@@ -72,7 +76,8 @@ if (!is.null(opt$vcf)) {
     cat("VCF:", opt$vcf, "\n")
 }
 cat("Output:", output_dir, "\n")
-cat("Alpha:", opt$alpha, "\n\n")
+cat("Alpha:", opt$alpha, "\n")
+cat("Correction:", opt$correction, "\n\n")
 
 # Run Jumble
 result <- run_jumble(
@@ -80,7 +85,8 @@ result <- run_jumble(
     reference_file = opt$reference,
     output_dir = output_dir,
     snp_vcf = opt$vcf,
-    alpha = opt$alpha
+    alpha = opt$alpha,
+    correction = opt$correction
 )
 
 cat("\n✓ Analysis complete\n")

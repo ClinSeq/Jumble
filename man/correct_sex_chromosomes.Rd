@@ -7,7 +7,7 @@
 correct_sex_chromosomes(targets, lr_col)
 }
 \arguments{
-\item{targets}{data.table with male gender assignment}
+\item{targets}{data.table with male_from_x and male_from_y columns}
 
 \item{lr_col}{Column name with log ratio values}
 }
@@ -15,6 +15,8 @@ correct_sex_chromosomes(targets, lr_col)
 Modified targets with sex-chromosome-corrected values
 }
 \description{
-Adjust X and Y chromosome log ratios for males (nonPAR regions)
+Adjust X chromosome using X-based gender detection and
+Y chromosome using Y-based gender detection, independently.
+This matches the original jumble logic.
 }
 \keyword{internal}

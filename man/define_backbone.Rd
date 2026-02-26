@@ -4,17 +4,16 @@
 \alias{define_backbone}
 \title{Define Backbone Bins}
 \usage{
-define_backbone(targets, reference = NULL)
+define_backbone(targets)
 }
 \arguments{
-\item{targets}{Data.table containing bin information.}
-
-\item{reference}{Reference object containing 'mat' and 'bins'.}
+\item{targets}{Data.table containing bin information with 'chromosome',
+'bin', and optionally 'gene' columns.}
 }
 \value{
-Targets with 'is_backbone' column.
+Targets with 'backbone_weight' column.
 }
 \description{
-Identifies bins to be used as backbone for normalization.
-Uses the variance across the reference set to select stable bins.
+Identifies bins to be used as backbone for normalization regression training.
+Replaces the old binary logic with a continuous weight column.
 }

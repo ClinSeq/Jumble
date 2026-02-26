@@ -12,7 +12,8 @@ generate_plots(
   sample_name,
   snp_table,
   gis_table,
-  somatic
+  somatic,
+  qc_metrics = NULL
 )
 }
 \arguments{
