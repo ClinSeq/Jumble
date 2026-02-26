@@ -27,7 +27,7 @@ Jumble/
 ├── inst/testdata/              # Package tests (anonymized)
 │   ├── gene_panel/
 │   │   ├── reference/          # Reference build counts
-│   │   ├── samples/            # Test samples + VCF
+│   │   ├── samples/            # Test samples + VCF (scrambled)
 │   │   └── reference.RDS
 │   └── wgs/
 │       ├── reference/          # Reference build counts
