@@ -7,10 +7,7 @@
 */.DS_Store
 .Rbuildignore
 .Rprofile
-# .cursorrules
 
-
-# Large Data & Inputs
 # Large Data & Inputs
 *.vcf
 *.vcf.gz
