@@ -14,9 +14,8 @@ This package is a re-implementation of the legacy *Jumble* R-scripts. It is curr
 
 *   **Copy Number Calling**: Segmented copy number plotting and calling.
 *   **Genomic Instability Score (GIS)**: Calculation and visualization (`.gis.png`).
-*   **Reference Building**: Create robust references from your own "normal" samples.
 *   **Pipeline Ready**: Includes command-line wrapper scripts for easy integration into Nextflow/Snakemake pipelines.
-*   **Multi-Genome Support**: Fully supported and validated for both **hg19** and **hg38**. Automatically detects genome version from input data.
+
 
 ## Installation
 
