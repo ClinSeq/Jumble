@@ -4,7 +4,7 @@
 #'
 #' @param snp_table A data.table containing SNP data, including 'allele_ratio'.
 #' @return A numeric value representing the estimated contamination fraction (0 to 1).
-#' @export
+#' @keywords internal
 estimate_contamination <- function(snp_table) {
     # FEATURE RETIRED: 2026-01-13
     # The contamination estimation algorithm has been disabled pending further development.

@@ -20,3 +20,4 @@ Prevents densely targeted genes from dominating the training set.
 - Bins in genes with > 25 bins: weight = 25 / n
 - Non-autosomal bins (X, Y): weight = 0.0
 }
+\keyword{internal}

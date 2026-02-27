@@ -4,7 +4,7 @@
 #'
 #' @param targets data.table.
 #' @return Modifies targets in-place.
-#' @export
+#' @keywords internal
 annotate_targets <- function(targets) {
   if (!"label" %in% names(targets)) {
     if ("type" %in% names(targets)) {
@@ -1043,7 +1043,7 @@ arrange_and_save_plots <- function(plot_list, use_snp, title, output_file) {
 #' @param gis_table Optional GIS results table.
 #' @param somatic_table Optional table of somatic mutations.
 #' @return The ggplot object (invisibly).
-#' @export
+#' @keywords internal
 plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
                          output_file = NULL, title = "", gis_table = NULL, 
                          somatic_table = NULL) {
@@ -1118,7 +1118,7 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
 #' @param title Plot title.
 #' @return NULL (saves file)
 #' @import ggplot2 patchwork
-#' @export
+#' @keywords internal
 plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysis") {
   # Ensure valid data
   if (is.null(gis_table) || nrow(gis_table) == 0) {

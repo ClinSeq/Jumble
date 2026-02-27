@@ -15,3 +15,4 @@ A numeric value representing the estimated contamination fraction (0 to 1).
 \description{
 Estimates the level of DNA contamination in a sample based on SNP allele ratios.
 }
+\keyword{internal}

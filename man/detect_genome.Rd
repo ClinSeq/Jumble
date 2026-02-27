@@ -15,3 +15,4 @@ A string "hg19", "hg38", or NULL if undetermined.
 \description{
 Inspects the BAM header to guess the genome build (hg19 or hg38).
 }
+\keyword{internal}

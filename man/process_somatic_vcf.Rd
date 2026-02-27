@@ -20,3 +20,4 @@ A data.table with somatic mutations (chromosome, start, AF, bin), or NULL on fai
 Parses a somatic VCF file, extracts allele depths, annotates with VEP CSQ fields 
 and internal hotspots, and maps variants to reference bins.
 }
+\keyword{internal}

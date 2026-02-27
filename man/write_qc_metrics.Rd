@@ -14,3 +14,4 @@ write_qc_metrics(qc_metrics, output_file)
 \description{
 Writes QC metrics to a CSV file.
 }
+\keyword{internal}

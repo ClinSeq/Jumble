@@ -38,3 +38,4 @@ The ggplot object (invisibly).
 \description{
 Generates plots for Jumble analysis results.
 }
+\keyword{internal}

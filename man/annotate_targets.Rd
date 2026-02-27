@@ -15,3 +15,4 @@ Modifies targets in-place.
 \description{
 Adds 'label' and 'selected_genes' columns to targets.
 }
+\keyword{internal}

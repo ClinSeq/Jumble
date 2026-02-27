@@ -576,7 +576,7 @@ cleanup_temp_columns <- function(targets, cols_to_remove) {
 #' @return A list containing PCA results for targets and background.
 #' @importFrom stats prcomp sd
 #' @importFrom data.table dcast as.data.table setorder
-#' @export
+#' @keywords internal
 compute_reference_pca <- function(reference) {
   # 1. Reconstruct and define backbone
   targets <- reconstruct_targets_from_reference(reference)
@@ -646,7 +646,7 @@ compute_reference_pca <- function(reference) {
 #' @return Normalized targets.
 #' @importFrom MASS rlm
 #' @importFrom stats predict loess loess.control median
-#' @export
+#' @keywords internal
 normalize_sample <- function(targets, reference_pca, correction = "optim") {
   # 1. Filter and prepare targets
   targets <- targets[bin %in% reference_pca$valid_bins]

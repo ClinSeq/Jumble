@@ -16,3 +16,4 @@ A list containing `cancergenes`, `allgenes`, and `allexons`.
 Fetches gene and exon information from Ensembl via biomaRt and integrates with
 a bundled CSV file of clinically relevant cancer genes.
 }
+\keyword{internal}

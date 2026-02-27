@@ -10,7 +10,7 @@
 #' @param contamination Estimated contamination fraction (optional).
 #' @return A data.table with one row containing QC metrics.
 #' @importFrom data.table data.table
-#' @export
+#' @keywords internal
 compute_qc_metrics <- function(targets, bam_file, reference_file,
                                snp_vcf = NULL, sample_name = NULL,
                                contamination = NA_real_) {
@@ -164,7 +164,7 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
 #' @param qc_metrics QC metrics data.table.
 #' @param output_file Path to output CSV file.
 #' @importFrom data.table fwrite
-#' @export
+#' @keywords internal
 write_qc_metrics <- function(qc_metrics, output_file) {
   fwrite(qc_metrics, output_file, sep = ",", quote = TRUE)
   message("QC metrics saved to: ", output_file)

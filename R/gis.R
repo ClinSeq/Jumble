@@ -4,7 +4,7 @@
 #'
 #' @param feats List or data.table containing features: focal_gain, local_cnv, loh.
 #' @return Predicted GIS score.
-#' @export
+#' @keywords internal
 gis_model <- function(feats = NULL) {
     # 1. Coefficients --------------------------------------------------------
     coefficients <- list(
@@ -41,7 +41,7 @@ gis_model <- function(feats = NULL) {
 #' @importFrom GenomicRanges makeGRangesFromDataFrame findOverlaps
 #' @importFrom stats median quantile runmed
 #' @importFrom stringr str_detect
-#' @export
+#' @keywords internal
 compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, by = 0.01), genome = "hg19") {
     # 1. 1MB Binning of Targets ----------------------------------------------
     # parsing targets

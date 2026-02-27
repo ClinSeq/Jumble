@@ -22,3 +22,4 @@ A list containing the segment table and the updated targets with segment IDs.
 Main wrapper function that performs segmentation on normalized log-ratios using PSCBS,
 assigns mapped segments to targets, and optionally annotates the data.
 }
+\keyword{internal}

@@ -15,3 +15,4 @@ A list containing PCA results for targets and background.
 \description{
 Performs PCA on reference dataset to identify latent features for normalization.
 }
+\keyword{internal}

@@ -32,3 +32,4 @@ A data.table with one row containing QC metrics.
 \description{
 Calculates QC metrics for a Jumble analysis run.
 }
+\keyword{internal}

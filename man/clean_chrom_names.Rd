@@ -15,3 +15,4 @@ Cleaned chromosome names (1, 2, ..., X, Y).
 \description{
 Standardizes chromosome names by removing 'chr' prefixes.
 }
+\keyword{internal}

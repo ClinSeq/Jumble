@@ -5,7 +5,7 @@
 #' @param bam_file Path to the BAM file.
 #' @return A string "hg19", "hg38", or NULL if undetermined.
 #' @importFrom Rsamtools scanBamHeader
-#' @export
+#' @keywords internal
 detect_genome <- function(bam_file) {
   # 1. Header Check ----------------------------------------------------------
   header <- scanBamHeader(bam_file)
@@ -45,7 +45,7 @@ detect_genome <- function(bam_file) {
 #'
 #' @param targets Data.table containing bin information.
 #' @return A numeric vector of weights.
-#' @export
+#' @keywords internal
 compute_backbone_weights <- function(targets) {
   weights <- rep(1.0, nrow(targets))
   
@@ -81,7 +81,7 @@ compute_backbone_weights <- function(targets) {
 #'   'bin', and optionally 'gene' columns.
 #' @return Targets with 'backbone_weight' column.
 #' @importFrom data.table copy
-#' @export
+#' @keywords internal
 define_backbone <- function(targets) {
   # Add continuous backbone weights (replaces binary is_backbone)
   targets[, backbone_weight := compute_backbone_weights(targets)]
@@ -96,7 +96,7 @@ define_backbone <- function(targets) {
 #' @param x Vector of chromosome names.
 #' @return Cleaned chromosome names (1, 2, ..., X, Y).
 #' @importFrom stringr str_remove
-#' @export
+#' @keywords internal
 clean_chrom_names <- function(x) {
   x <- as.character(x)
   stringr::str_remove(x, "^chr")

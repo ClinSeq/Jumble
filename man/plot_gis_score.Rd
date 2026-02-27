@@ -23,3 +23,4 @@ Plots the Genomic Instability Score analysis:
 1. Smooth corrected depth vs Allele Ratio (top panel)
 2. GIS metrics vs Tumor Fraction (bottom panel)
 }
+\keyword{internal}

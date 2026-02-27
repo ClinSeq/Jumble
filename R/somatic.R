@@ -229,7 +229,7 @@ map_variants_to_bins <- function(somatic, reference) {
 #' @param genome Genome build version ("hg19" or "hg38").
 #' @return A data.table with somatic mutations (chromosome, start, AF, bin), or NULL on failure.
 #' @importFrom VariantAnnotation readVcf
-#' @export
+#' @keywords internal
 process_somatic_vcf <- function(vcf_file, reference, genome = "hg19") {
   if (is.null(vcf_file) || !file.exists(vcf_file)) {
     warning("Somatic VCF file not found or NULL.")

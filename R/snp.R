@@ -157,7 +157,7 @@ map_snps_to_bins <- function(snp_table, targets) {
 #' @return A data.table containing processed SNP information, or NULL if processing fails.
 #' @importFrom VariantAnnotation readVcf
 #' @importFrom stringr str_detect
-#' @export
+#' @keywords internal
 process_snps <- function(vcf_file, targets, sample_name = NULL) {
   if (is.null(vcf_file) || !file.exists(vcf_file)) {
     return(NULL)

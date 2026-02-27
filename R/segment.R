@@ -190,7 +190,7 @@ annotate_segments <- function(segments, cancergenes, cancerexons) {
 #' @param cancergenes Optional data.table of cancer genes for annotation.
 #' @param cancerexons Optional data.table of cancer exons for annotation.
 #' @return A list containing the segment table and the updated targets with segment IDs.
-#' @export
+#' @keywords internal
 segment_data <- function(targets, alpha = NULL, cancergenes = NULL, cancerexons = NULL) {
   if (is.null(alpha)) alpha <- 0.02
   

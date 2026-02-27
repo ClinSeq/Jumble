@@ -79,7 +79,7 @@ process_cancer_genes <- function(allgenes) {
 #' @importFrom data.table fread as.data.table setnames :=
 #' @importFrom utils data
 #' @importFrom httr set_config config timeout
-#' @export
+#' @keywords internal
 generate_gene_annotation <- function(genome = "hg19", mirror = NULL) {
   mart <- get_ensembl_mart(genome, mirror)
   chromosomes <- c(as.character(1:22), "X", "Y")

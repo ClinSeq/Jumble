@@ -19,3 +19,4 @@ Normalized targets.
 \description{
 Normalizes the query sample using reference PCA and GC correction.
 }
+\keyword{internal}

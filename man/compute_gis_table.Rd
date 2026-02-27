@@ -26,3 +26,4 @@ Data.table with fraction, predicted_gis, and feature counts.
 \description{
 Computes GIS scores across a range of purity fractions.
 }
+\keyword{internal}

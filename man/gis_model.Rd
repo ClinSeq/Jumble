@@ -15,3 +15,4 @@ Predicted GIS score.
 \description{
 Hard-coded prediction function for Genomic Instability Score (GIS).
 }
+\keyword{internal}

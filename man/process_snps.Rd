@@ -20,3 +20,4 @@ A data.table containing processed SNP information, or NULL if processing fails.
 Main wrapper: Loads and processes SNPs from a VCF file, calculates allele 
 ratios, and maps the results to genomic target bins.
 }
+\keyword{internal}
