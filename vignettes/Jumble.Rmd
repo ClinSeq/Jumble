@@ -1,0 +1,249 @@
+---
+title: "Introduction to Jumble"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to Jumble}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# Introduction
+
+**Jumble** is a tool for copy number analysis of short-read sequencing data. It supports both Targeted Sequencing (gene panels) and Whole Genome Sequencing (WGS).
+
+## Installation
+
+```r
+# install.packages("devtools")
+# devtools::install_github("your-repo/Jumble")
+library(Jumble)
+```
+
+## Workflow Overview
+
+1.  **Generate Count Files**: Generate binned read counts from BAM files.
+2.  **Build Reference**: Create a reference panel from normal samples.
+3.  **Run Analysis**: Normalize, segment, and call CNAs for tumor samples.
+
+---
+
+## Setup
+
+```{r setup, warning=FALSE, message=FALSE}
+library(Jumble)
+library(data.table)
+
+# Locate test data directory
+testdata_dir <- system.file("testdata", package = "Jumble")
+if (testdata_dir == "") testdata_dir <- "../inst/testdata" # Fallback for dev
+
+print(testdata_dir)
+```
+
+## Workflow Steps
+
+Jumble can be run entirely from R or using the included command-line wrapper scripts. The locations of the wrapper scripts can be found using:
+```r
+system.file("scripts", package = "Jumble")
+```
+
+### 1. Generate Count Files
+
+The first step is to generate binned read counts from your BAM files. This step produces `.counts.RDS` files.
+
+*   **For Reference Samples**: This step is necessary. You must generate count files for "normal" CNV-negative samples to build the reference panel in Step 2.
+*   **For Test Samples**: This step is optional. You can run the analysis directly from BAM files (Step 3), in which case count files are generated automatically if needed. However, generating count files in advance may be useful for large cohorts.
+
+This step requires a target BED file (for panels) or a bin size selection for WGS (10,000 recommended).
+
+**R Function:**
+
+```{r count_reads, eval=FALSE}
+# Example for a list of BAM files
+bam_files <- list.files("path/to/bams", pattern = ".bam$", full.names = TRUE)
+target_bed <- "targets.bed"
+
+# Process each BAM file
+for (bam in bam_files) {
+  generate_counts(
+    bam_file = bam,
+    target_bed_file = target_bed,
+    output_dir = "counts_output"
+  )
+}
+# This produces *.counts.RDS files
+```
+
+**Command Line Alternative:**
+
+You can use the `jumble-count.R` wrapper script.
+
+```bash
+# Targeted Sequencing
+Rscript jumble-count.R -t targets.bed -b sample.bam
+
+# Whole Genome Sequencing (10kb bins)
+Rscript jumble-count.R -w 10000 -b sample.bam
+```
+
+### 2. Build Reference
+
+Once you have count files for your normal samples, you combine them into a reference file.
+
+**R Function:**
+
+```{r build_ref, warning=FALSE, message=FALSE}
+# Locate example count files included in the package
+count_files <- list.files(file.path(testdata_dir, "gene_panel/samples"), 
+                          pattern = ".counts.RDS$", full.names = TRUE)
+
+# In a real workflow, these would be your normal samples
+print(basename(count_files))
+
+# Build the reference
+# We use 'annotation_source = "biomart"' to fetch gene data (requires internet)
+# Note: For the sake of this vignette running offline, we skip the actual 
+# biomaRt call by loading the pre-built reference, but the code below is how you run it.
+
+# reference <- build_reference(
+#  count_files = count_files,
+#  annotation_source = "biomart",
+#  genome = "hg19"
+# )
+```
+
+**Command Line Alternative:**
+
+Use `jumble-reference.R` to build a reference from a directory of count files.
+
+```bash
+Rscript jumble-reference.R -i reference_counts_dir/ -o reference.RDS
+```
+
+*Note: The `build_reference` function fetches gene annotations from Ensembl. To save time in this vignette, we will load the pre-built reference included in the test data for the next steps.*
+
+```{r load_ref_real}
+ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")
+reference <- readRDS(ref_file)
+```
+
+### 3. Run Analysis
+
+You can run the analysis starting directly from a BAM file (standard) or a pre-computed count file.
+
+**R Function:**
+
+#### Option A: Run from BAM (Standard)
+
+```{r run_from_bam, eval=FALSE}
+run_jumble(
+  bam_file = "tumor_sample.bam",
+  reference_file = reference,
+  snp_vcf = "tumor_sample_germline_snps.vcf.gz",  # Optional: for GIS/LOH
+  somatic_vcf = "tumor_sample_somatic.vcf.gz",  # Optional: for overlaying somatic mutations
+  output_dir = "results"
+)
+```
+
+#### Option B: Run from Counts (Example)
+
+Here we run the analysis using the count file included in the test data.
+
+```{r run_jumble, warning=FALSE, message=FALSE}
+# Define input files
+sample_file <- file.path(testdata_dir, "gene_panel/samples/test_sample_1.counts.RDS")
+
+# Define optional VCF input
+vcf_file <- file.path(testdata_dir, "gene_panel/samples/test_sample_1.vcf.gz")
+
+# Create output directory
+out_dir <- tempfile()
+dir.create(out_dir)
+
+# Run Jumble
+results <- run_jumble(
+  bam_file = sample_file,
+  reference_file = ref_file,
+  snp_vcf = vcf_file,
+  output_dir = out_dir
+)
+```
+
+#### Option C: Run with Somatic Annotations (Example)
+
+You can optionally overlay somatic mutations onto the resulting plots by providing a somatic VCF file.
+
+```{r run_jumble_somatic, eval=FALSE}
+# Run Jumble with Somatic overlay
+results_somatic <- run_jumble(
+  bam_file = sample_file,
+  reference_file = ref_file,
+  snp_vcf = vcf_file,
+  somatic_vcf = "path/to/somatic.vcf.gz",
+  output_dir = out_dir
+)
+```
+
+**Command Line Alternative:**
+
+Use `jumble-run.R` for the complete analysis.
+
+```bash
+# Basic run
+Rscript jumble-run.R -r reference.RDS -b tumor_sample.bam
+
+# With SNP VCF (for GIS/LOH)
+Rscript jumble-run.R -r reference.RDS -b tumor_sample.bam -v tumor_sample_germline_snps.vcf.gz
+
+# With both SNP and Somatic VCFs
+Rscript jumble-run.R -r reference.RDS -b tumor_sample.bam -v tumor_sample_germline_snps.vcf.gz -s tumor_sample_somatic.vcf.gz
+```
+
+### 4. Inspect Results
+
+The `results` object is a list containing segments, bin-level data, and QC metrics.
+
+```{r inspect_res}
+# Segments (Copy Number Calls)
+print(head(results$segments))
+
+# QC Metrics
+print(results$qc)
+```
+
+### 5. Genomic Instability Score (GIS)
+
+If a SNP VCF is provided, Jumble calculates a GIS score to assess Homologous Recombination Deficiency (HRD). This is computed over a range of tumor fractions.
+
+```{r inspect_gis}
+if (!is.null(results$gis)) {
+  print(head(results$gis))
+}
+```
+
+### 6. Visualization
+
+Jumble automatically generates plots in the output directory.
+
+```{r list_plots}
+list.files(out_dir, pattern = ".png")
+```
+
+---
+
+# Citation
+
+If you use Jumble in your research, please cite the following preprint:
+
+> Mayrhofer, M. et al. "Sensitive detection of copy number alterations in samples with low circulating tumor DNA fraction." *MedRxiv* (2024). [doi:10.1101/2024.05.04.24306860](https://www.medrxiv.org/content/10.1101/2024.05.04.24306860v1)
+
+# Conclusion
+
+This workflow covers the basics of using Jumble for Copy Number Analysis. For WGS data, the process is identical, differing only in the `build_reference` step where you would typically use a fixed bin size (e.g., 10kb) rather than target regions.

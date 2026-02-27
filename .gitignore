@@ -1,0 +1,31 @@
+.Rproj.user
+.Rproj
+.Rhistory
+.RData
+.Ruserdata
+.DS_Store
+*/.DS_Store
+.Rbuildignore
+.Rprofile
+
+# Large Data & Inputs
+*.vcf
+*.vcf.gz
+*.tbi
+*.bam
+*.bai
+
+# Validation Outputs
+*.csv
+*.RDS
+*.pdf
+*.png
+
+# Internal Development
+local_dev/
+.cursorrules
+
+# Editor
+.vscode/
+/doc/
+/Meta/
