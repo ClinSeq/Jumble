@@ -15,6 +15,12 @@
 *.bam
 *.bai
 
+# Allow package test data
+!inst/testdata/
+!inst/extdata/
+!inst/testdata/**
+!inst/extdata/**
+
 # Validation Outputs
 *.csv
 *.RDS
