@@ -7,9 +7,9 @@ Jumble is an R package for copy number analysis, offering functions for counting
 *   **[NEWS](NEWS.md)**: Changelog and version history.
 
 
-# PROTOTYPE
+# Prototype
 
-This package is a re-implementation of the legacy *Jumble* R-scripts. It is currently in a prototype state and may not be stable. It may also be incomplete. Use at your own risk.
+This package is a re-implementation of legacy Jumble R-scripts. It is currently in a prototype state and may not be stable. It may also be incomplete. Use at your own risk.
 
 
 
