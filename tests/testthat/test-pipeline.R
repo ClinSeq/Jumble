@@ -81,3 +81,31 @@ test_that("Full pipeline runs on test data", {
   expect_true(file.exists(file.path(out_dir, paste0(sample_name, ".jumble.csv"))))
   expect_true(file.exists(file.path(out_dir, paste0(sample_name, ".png"))))
 })
+
+test_that("generate_counts works with targeted mode (BED file)", {
+  bam_file <- system.file("extdata", "test_sample.bam", package = "Jumble")
+  if (bam_file == "") bam_file <- "../../inst/extdata/test_sample.bam"
+  
+  expect_true(file.exists(bam_file))
+  
+  # Create a mock BED file
+  mock_bed_path <- tempfile(fileext = ".bed")
+  bed_content <- data.frame(
+    chromosome = c("1", "2"),
+    start = c(10000, 50000),
+    end = c(20000, 60000)
+  )
+  write.table(bed_content, mock_bed_path, sep = "\t", quote = FALSE, row.names = FALSE, col.names = TRUE)
+  
+  # Ensure the mock bed file exists
+  expect_true(file.exists(mock_bed_path))
+  
+  # Test generate_counts in targeted mode
+  counts <- generate_counts(bam_file, target_bed = mock_bed_path)
+  
+  expect_type(counts, "list")
+  expect_true("count" %in% names(counts))
+  expect_true("ranges" %in% names(counts))
+  expect_true("bed" %in% names(counts))
+  expect_false(is.null(counts$bed))
+})

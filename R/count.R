@@ -202,7 +202,7 @@ create_background_bins <- function(raw_targets, chromlength) {
   
   # 3. Invert to get gaps (The background)
   # Must set seqinfo for gaps() to work on the whole genome
-  gr_base <- gr_base[seqnames(gr_base) %in% names(chromlength)]
+  gr_base <- gr_base[as.character(seqnames(gr_base)) %in% names(chromlength)]
   seqlevels(gr_base) <- names(chromlength)
   seqlengths(gr_base) <- chromlength
   
