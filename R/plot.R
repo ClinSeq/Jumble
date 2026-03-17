@@ -1340,10 +1340,10 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
     ) +
     ggplot2::scale_y_log10(
       name = "Number of variants",
-      limits = c(1, y_max),
-      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000),
+      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 400, 1000, 2000, 5000),
       labels = function(x) ifelse(x == 1, "0", as.character(x - 1))
     ) +
+    ggplot2::coord_cartesian(ylim = c(1, y_max + 1)) +
     ggplot2::scale_color_manual(values = cat_colors) +
     ggplot2::scale_linewidth_manual(
       values = c("Total indels" = 0.8, "MSI (mono+di)" = 2,
