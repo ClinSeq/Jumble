@@ -193,6 +193,70 @@ annotate_hotspots <- function(somatic, genome) {
   return(somatic)
 }
 
+#' Classify Somatic Indels for MSI
+#'
+#' Identifies indels in the somatic table and classifies them using the
+#' MSI repeat-tract classifier. Adds an MSI column (0/1/2/3) for indels,
+#' NA for SNVs.
+#'
+#' @param somatic A processed somatic data.table (must have REF, ALT columns).
+#' @param genome Genome build version ("hg19" or "hg38").
+#' @return The somatic data.table with an appended `MSI` column.
+#' @importFrom data.table := set
+#' @keywords internal
+classify_somatic_msi <- function(somatic, genome) {
+  somatic[, MSI := NA_integer_]
+
+  if (nrow(somatic) == 0) return(somatic)
+
+  # Identify indels (REF and ALT differ in length)
+  is_indel <- nchar(somatic$REF) != nchar(somatic$ALT)
+  if (sum(is_indel) == 0) return(somatic)
+
+  # Load BSgenome
+  bsg <- load_bsgenome(genome)
+  if (is.null(bsg)) return(somatic)
+
+  # Prepare inputs for extract_flanks
+  indel_idx <- which(is_indel)
+  indel_sub <- somatic[indel_idx]
+
+  is_del <- nchar(indel_sub$REF) > nchar(indel_sub$ALT)
+
+  flank_input <- data.table::data.table(
+    chrom  = indel_sub$chromosome,
+    pos    = indel_sub$start + 1L,          # skip VCF anchor base
+    length = ifelse(is_del, nchar(indel_sub$REF) - 1L, 0L)
+  )
+
+  # Extract flanking sequences
+  flank_input <- extract_flanks(flank_input, bsg)
+
+  # Derive nonanchored_alt: strip VCF anchor base
+  nonanchored_alt <- ifelse(
+    is_del,
+    substring(indel_sub$REF, 2),
+    substring(indel_sub$ALT, 2)
+  )
+
+  # Classify
+  msi_result <- classify_msi(
+    nonanchored_alt,
+    flank_input$left_flank,
+    flank_input$right_flank
+  )
+
+  data.table::set(somatic, i = indel_idx, j = "MSI", value = msi_result)
+
+  n_msi <- sum(msi_result > 0)
+  message("MSI classification: ", sum(is_indel), " indels, ",
+          n_msi, " MSI-like (", sum(msi_result == 1), " mono, ",
+          sum(msi_result == 2), " di, ", sum(msi_result == 3), " tri)")
+
+  return(somatic)
+}
+
+
 #' Map Somatic Variants to Reference Bins
 #'
 #' @param somatic A processed data.table of somatic variants.
@@ -269,7 +333,10 @@ process_somatic_vcf <- function(vcf_file, reference, genome = "hg19") {
   # 4. Annotate Hotspots
   somatic <- annotate_hotspots(somatic, genome)
 
-  # 5. Map to Bins
+  # 5. MSI Classification (indels only)
+  somatic <- classify_somatic_msi(somatic, genome)
+
+  # 6. Map to Bins
   somatic <- map_variants_to_bins(somatic, reference)
 
   return(somatic)
