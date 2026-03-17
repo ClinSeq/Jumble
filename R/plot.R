@@ -1289,15 +1289,13 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
   vaf_thresholds <- seq(0.01, 0.50, by = 0.01)
 
   # Build summary data for each threshold
-  # MSI total = mono + di only (tri excluded from total)
   plot_data <- data.table::rbindlist(lapply(vaf_thresholds, function(vaf_min) {
     sub <- indels[AF >= vaf_min]
     data.table::data.table(
       vaf_threshold = vaf_min,
-      category = c("Total indels", "MSI (mono+di)", "Mono (period 1)", "Di (period 2)", "Tri (period 3)"),
+      category = c("Total indels", "Mono repeats", "Di repeats", "Tri repeats"),
       count = c(
         nrow(sub),
-        sum(sub$MSI %in% 1:2),
         sum(sub$MSI == 1),
         sum(sub$MSI == 2),
         sum(sub$MSI == 3)
@@ -1305,30 +1303,28 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
     )
   }))
 
-  # Drop categories that are always zero
-  nonzero_cats <- plot_data[, .(total = sum(count)), by = category][total > 0]$category
-  plot_data <- plot_data[category %in% nonzero_cats]
-
   if (nrow(plot_data) == 0) return(NULL)
 
-  # Order factor for consistent line ordering
-  cat_order <- c("Total indels", "MSI (mono+di)", "Mono (period 1)", "Di (period 2)", "Tri (period 3)")
+  # Always show all categories (including zero-count ones) for consistent legend
+  cat_order <- c("Total indels", "Mono repeats", "Di repeats", "Tri repeats")
   plot_data[, category := factor(category, levels = cat_order)]
 
   # Colors
   cat_colors <- c(
-    "Total indels"    = "grey50",
-    "MSI (mono+di)"   = "black",
-    "Mono (period 1)" = "#E41A1C",
-    "Di (period 2)"   = "#377EB8",
-    "Tri (period 3)"  = "#4DAF4A"
+    "Total indels"  = "grey50",
+    "Mono repeats"  = "#E41A1C",
+    "Di repeats"    = "#377EB8",
+    "Tri repeats"   = "#4DAF4A"
   )
 
   # Log Y axis with minimum range of 400
   y_max <- max(400, max(plot_data$count, na.rm = TRUE) * 1.1)
 
+  # Replace 0 with 0.5 for log scale display
+  plot_data[, plot_count := ifelse(count == 0, 0.5, count)]
+
   p <- ggplot2::ggplot(plot_data, ggplot2::aes(
-    x = vaf_threshold, y = count + 1,  # +1 to avoid log(0)
+    x = vaf_threshold, y = plot_count,
     color = category, linewidth = category
   )) +
     ggplot2::geom_line() +
@@ -1340,14 +1336,14 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
     ) +
     ggplot2::scale_y_log10(
       name = "Number of variants",
-      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 400, 1000, 2000, 5000),
-      labels = function(x) ifelse(x == 1, "0", as.character(x - 1))
+      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 400, 1000, 2000, 5000)
     ) +
-    ggplot2::coord_cartesian(ylim = c(1, y_max + 1)) +
-    ggplot2::scale_color_manual(values = cat_colors) +
+    ggplot2::coord_cartesian(ylim = c(0.5, y_max)) +
+    ggplot2::scale_color_manual(values = cat_colors, drop = FALSE) +
     ggplot2::scale_linewidth_manual(
-      values = c("Total indels" = 0.8, "MSI (mono+di)" = 2,
-                 "Mono (period 1)" = 1, "Di (period 2)" = 1, "Tri (period 3)" = 1)
+      values = c("Total indels" = 0.8,
+                 "Mono repeats" = 1, "Di repeats" = 1, "Tri repeats" = 1),
+      drop = FALSE
     ) +
     ggplot2::labs(title = title, color = NULL, linewidth = NULL) +
     ggplot2::theme_bw() +
