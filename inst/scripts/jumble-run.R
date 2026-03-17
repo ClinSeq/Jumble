@@ -17,7 +17,11 @@ option_list <- list(
     ),
     make_option(c("-v", "--vcf"),
         type = "character", default = NULL,
-        help = "VCF file for SNP analysis (optional)", metavar = "FILE"
+        help = "Germline SNP VCF file for GIS/LOH analysis (optional)", metavar = "FILE"
+    ),
+    make_option(c("-s", "--somatic"),
+        type = "character", default = NULL,
+        help = "Somatic VCF file for mutation overlay on plots (optional)", metavar = "FILE"
     ),
     make_option(c("-o", "--output"),
         type = "character", default = NULL,
@@ -36,7 +40,7 @@ option_list <- list(
 opt_parser <- OptionParser(
     usage = "Usage: %prog [options]",
     option_list = option_list,
-    description = "\nRun Jumble copy number analysis.\n\nExamples:\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -c optim -o output/\n  Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz"
+    description = "\nRun Jumble copy number analysis.\n\nExamples:\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -c optim -o output/\n  Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -v germline.vcf.gz -s somatic.vcf.gz"
 )
 
 opt <- parse_args(opt_parser)
@@ -62,6 +66,10 @@ if (!is.null(opt$vcf) && !file.exists(opt$vcf)) {
     stop("VCF file not found: ", opt$vcf)
 }
 
+if (!is.null(opt$somatic) && !file.exists(opt$somatic)) {
+    stop("Somatic VCF file not found: ", opt$somatic)
+}
+
 # Set output directory
 output_dir <- if (!is.null(opt$output)) opt$output else getwd()
 if (!dir.exists(output_dir)) {
@@ -75,6 +83,9 @@ cat("Input:", opt$bam, "\n")
 if (!is.null(opt$vcf)) {
     cat("VCF:", opt$vcf, "\n")
 }
+if (!is.null(opt$somatic)) {
+    cat("Somatic VCF:", opt$somatic, "\n")
+}
 cat("Output:", output_dir, "\n")
 cat("Alpha:", opt$alpha, "\n")
 cat("Correction:", opt$correction, "\n\n")
@@ -85,6 +96,7 @@ result <- run_jumble(
     reference_file = opt$reference,
     output_dir = output_dir,
     snp_vcf = opt$vcf,
+    somatic_vcf = opt$somatic,
     alpha = opt$alpha,
     correction = opt$correction
 )
@@ -94,7 +106,8 @@ cat("  - Segments:", nrow(result$segments), "\n")
 cat("  - X chromosome segments:", sum(result$segments$chromosome == "X", na.rm = TRUE), "\n")
 
 # List output files
-output_files <- list.files(output_dir, pattern = basename(tools::file_path_sans_ext(opt$bam)), full.names = FALSE)
+sample_name <- sub("\\.(counts\\.RDS|bam)$", "", basename(opt$bam))
+output_files <- list.files(output_dir, pattern = sample_name, full.names = FALSE)
 cat("\nOutput files:\n")
 for (f in output_files) {
     cat("  -", f, "\n")

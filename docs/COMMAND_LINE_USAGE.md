@@ -89,10 +89,16 @@ Rscript jumble-run.R -r reference.RDS -b sample.bam -o output/
 Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz
 ```
 
+**With SNP VCF and Somatic VCF:**
+```bash
+Rscript jumble-run.R -r reference.RDS -b sample.bam -v germline.vcf.gz -s somatic.vcf.gz -o output/
+```
+
 **Options:**
 - `-r, --reference FILE`: Reference file (required)
 - `-b, --bam FILE`: Input BAM or .counts.RDS file (required)
-- `-v, --vcf FILE`: VCF file for SNP analysis (optional)
+- `-v, --vcf FILE`: Germline SNP VCF file for GIS/LOH analysis (optional)
+- `-s, --somatic FILE`: Somatic VCF file for mutation overlay on plots (optional)
 - `-o, --output DIR`: Output directory [default: current directory]
 - `-a, --alpha N`: Segmentation alpha parameter [default: 0.001]
 
