@@ -301,6 +301,17 @@ prepare_somatic_data <- function(somatic_table, targets, reference = NULL) {
   data.table::setkey(somatic_plot, bin)
   somatic_plot <- t_lookup[somatic_plot]
   
+  # Classify variant type for shape mapping
+  if (all(c("REF", "ALT") %in% names(somatic_plot))) {
+    somatic_plot[, var_type := data.table::fifelse(
+      nchar(REF) > nchar(ALT), "Deletion",
+      data.table::fifelse(nchar(REF) < nchar(ALT), "Insertion", "SNV")
+    )]
+    somatic_plot[, var_type := factor(var_type, levels = c("SNV", "Insertion", "Deletion"))]
+  } else {
+    somatic_plot[, var_type := factor("SNV", levels = c("SNV", "Insertion", "Deletion"))]
+  }
+  
   # Prepare labels
   somatic_labels <- NULL
   cancergenes_list <- NULL
@@ -702,10 +713,14 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
       geom_point(
         data = somatic_plot,
-        mapping = aes(x = DP, y = AF),
-        col = "red", size = theme_params$size_selected, alpha = 0.8, shape = 16
+        mapping = aes(x = DP, y = AF, shape = var_type),
+        col = "red", fill = "red", size = theme_params$size_selected, alpha = 0.8
       )
     }) +
+    scale_shape_manual(
+      values = c("SNV" = 16, "Insertion" = 24, "Deletion" = 25),
+      drop = FALSE, guide = "none"
+    ) +
     (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
       ggrepel::geom_label_repel(
         data = somatic_labels,
@@ -818,10 +833,14 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
       geom_point(
         data = somatic_plot,
-        mapping = aes(x = bin, y = AF),
-        col = "red", size = theme_params$size_selected, alpha = 0.8, shape = 16
+        mapping = aes(x = bin, y = AF, shape = var_type),
+        col = "red", fill = "red", size = theme_params$size_selected, alpha = 0.8
       )
     }) +
+    scale_shape_manual(
+      values = c("SNV" = 16, "Insertion" = 24, "Deletion" = 25),
+      drop = FALSE, guide = "none"
+    ) +
     (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
       ggrepel::geom_label_repel(
         data = somatic_labels,
@@ -877,10 +896,14 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
       geom_point(
         data = somatic_plot,
-        mapping = aes(x = gpos, y = AF),
-        col = "red", size = 1.2, alpha = 0.8, shape = 16
+        mapping = aes(x = gpos, y = AF, shape = var_type),
+        col = "red", fill = "red", size = 1.2, alpha = 0.8
       )
     }) +
+    scale_shape_manual(
+      values = c("SNV" = 16, "Insertion" = 24, "Deletion" = 25),
+      drop = FALSE, guide = "none"
+    ) +
     (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
       ggrepel::geom_label_repel(
         data = somatic_labels,
@@ -1239,4 +1262,98 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
 
   # Save
   suppressWarnings(ggsave(output_file, plot = final_plot, width = 16, height = 12, dpi = 300))
+}
+
+
+#' Plot MSI Indel Count vs Minimum VAF Threshold
+#'
+#' Creates a diagnostic plot showing how MSI-like indel counts change
+#' across minimum VAF thresholds. Helps distinguish MSI signal from noise.
+#'
+#' @param somatic data.table with AF and MSI columns.
+#' @param output_file Path to save the plot (PNG).
+#' @param title Plot title.
+#' @return NULL (saves file).
+#' @import ggplot2
+#' @keywords internal
+plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
+  if (is.null(somatic) || nrow(somatic) == 0 || !"MSI" %in% names(somatic)) {
+    return(NULL)
+  }
+
+  # Only indels (MSI is NA for SNVs)
+  indels <- somatic[!is.na(MSI)]
+  if (nrow(indels) == 0) return(NULL)
+
+  # Define VAF thresholds to sweep
+  vaf_thresholds <- seq(0.01, 0.50, by = 0.01)
+
+  # Build summary data for each threshold
+  plot_data <- data.table::rbindlist(lapply(vaf_thresholds, function(vaf_min) {
+    sub <- indels[AF >= vaf_min]
+    data.table::data.table(
+      vaf_threshold = vaf_min,
+      category = c("Total indels", "Mono repeats", "Di repeats", "Tri repeats"),
+      count = c(
+        nrow(sub),
+        sum(sub$MSI == 1),
+        sum(sub$MSI == 2),
+        sum(sub$MSI == 3)
+      )
+    )
+  }))
+
+  if (nrow(plot_data) == 0) return(NULL)
+
+  # Always show all categories (including zero-count ones) for consistent legend
+  cat_order <- c("Total indels", "Mono repeats", "Di repeats", "Tri repeats")
+  plot_data[, category := factor(category, levels = cat_order)]
+
+  # Colors
+  cat_colors <- c(
+    "Total indels"  = "grey50",
+    "Mono repeats"  = "#E41A1C",
+    "Di repeats"    = "#377EB8",
+    "Tri repeats"   = "#4DAF4A"
+  )
+
+  # Log Y axis with minimum range of 400
+  y_max <- max(400, max(plot_data$count, na.rm = TRUE) * 1.1)
+
+  # Replace 0 with 0.5 for log scale display
+  plot_data[, plot_count := ifelse(count == 0, 0.5, count)]
+
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(
+    x = vaf_threshold, y = plot_count,
+    color = category, linewidth = category
+  )) +
+    ggplot2::geom_line() +
+    ggplot2::scale_x_continuous(
+      name = "Minimum VAF threshold",
+      breaks = seq(0, 0.5, by = 0.05),
+      labels = function(x) paste0(x * 100, "%"),
+      expand = c(0.01, 0.01)
+    ) +
+    ggplot2::scale_y_log10(
+      name = "Number of variants",
+      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 400, 1000, 2000, 5000)
+    ) +
+    ggplot2::coord_cartesian(ylim = c(0.5, y_max)) +
+    ggplot2::scale_color_manual(values = cat_colors, drop = FALSE) +
+    ggplot2::scale_linewidth_manual(
+      values = c("Total indels" = 0.8,
+                 "Mono repeats" = 1, "Di repeats" = 1, "Tri repeats" = 1),
+      drop = FALSE
+    ) +
+    ggplot2::labs(title = title, color = NULL, linewidth = NULL) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.major = ggplot2::element_line(color = "grey90"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "bottom",
+      plot.title = ggplot2::element_text(size = 14, hjust = 0.5)
+    ) +
+    ggplot2::guides(linewidth = "none")
+
+  suppressWarnings(ggplot2::ggsave(output_file, plot = p, width = 10, height = 7, dpi = 300))
 }

@@ -13,7 +13,8 @@
 #' @keywords internal
 compute_qc_metrics <- function(targets, bam_file, reference_file,
                                snp_vcf = NULL, sample_name = NULL,
-                               contamination = NA_real_) {
+                               contamination = NA_real_,
+                               somatic = NULL) {
   # 1. Initialize ------------------------------------------------------------
   qc <- data.table(
     sample = if (!is.null(sample_name)) sample_name else NA_character_,
@@ -67,27 +68,9 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
       qc$gc_bias <- NA_real_
     }
 
-    # Additional metrics for context
-    qc$n_low_gc_bins <- nrow(low_gc_bins)
-    qc$n_high_gc_bins <- nrow(high_gc_bins)
-    qc$mean_low_gc_count <- mean_low_gc
-    qc$mean_high_gc_count <- mean_high_gc
   } else {
     qc$gc_bias <- NA_real_
-    qc$n_low_gc_bins <- 0L
-    qc$n_high_gc_bins <- 0L
-    qc$mean_low_gc_count <- NA_real_
-    qc$mean_high_gc_count <- NA_real_
   }
-
-  # 4. Global Metrics --------------------------------------------------------
-  qc$total_bins <- nrow(targets)
-  qc$target_bins <- sum(targets$is_target)
-  qc$background_bins <- sum(!targets$is_target)
-
-  # Mean count across all targets
-  qc$mean_target_count <- mean(target_bins$count, na.rm = TRUE)
-
   # 5. Noise (Linear MAPD) ---------------------------------------------------
   if (nrow(target_bins) >= 2 && "log2" %in% names(target_bins)) {
     valid_log2 <- target_bins$log2[is.finite(target_bins$log2)]
@@ -152,6 +135,20 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
   # Round gc_bias
   if (!is.na(qc$gc_bias)) {
     qc$gc_bias <- round(qc$gc_bias, 2)
+  }
+
+  # 7. Somatic & MSI Metrics -------------------------------------------------
+  if (!is.null(somatic) && nrow(somatic) > 0) {
+    is_indel <- nchar(somatic$REF) != nchar(somatic$ALT)
+    qc$total_snvs  <- sum(!is_indel)
+    qc$total_indels <- sum(is_indel)
+
+    if ("MSI" %in% names(somatic)) {
+      msi_vals <- somatic$MSI[!is.na(somatic$MSI)]
+      qc$MSI_mono <- sum(msi_vals == 1)
+      qc$MSI_di   <- sum(msi_vals == 2)
+      qc$MSI_tri  <- sum(msi_vals == 3)
+    }
   }
 
   return(qc)
