@@ -607,8 +607,10 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
     bam_file = bam_file,
     reference_file = reference_file,
     snp_vcf = snp_vcf,
+    somatic_vcf = somatic_vcf,
     sample_name = sample_name,
     contamination = contamination,
+    snp_table = snp_table,
     somatic = somatic
   )
   

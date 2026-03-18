@@ -185,16 +185,16 @@ test_that("compute_qc_metrics includes MSI columns when somatic provided", {
     somatic = somatic
   )
 
-  expect_true("total_snvs" %in% names(qc))
-  expect_true("total_indels" %in% names(qc))
-  expect_equal(qc$total_snvs, 1L)    # A>G is the only SNV
-  expect_equal(qc$total_indels, 5L)   # 5 indels (different REF/ALT lengths)
+  expect_true("somatic_snvs" %in% names(qc))
+  expect_true("somatic_indels" %in% names(qc))
+  expect_equal(qc$somatic_snvs, 1L)    # A>G is the only SNV
+  expect_equal(qc$somatic_indels, 5L)   # 5 indels (different REF/ALT lengths)
   expect_equal(qc$MSI_mono, 2L)
   expect_equal(qc$MSI_di, 1L)
   expect_equal(qc$MSI_tri, 1L)
 })
 
-test_that("compute_qc_metrics works without somatic", {
+test_that("compute_qc_metrics always returns all 18 columns", {
   targets <- data.table::data.table(
     chromosome = c("1"),
     start = c(100),
@@ -212,6 +212,46 @@ test_that("compute_qc_metrics works without somatic", {
     reference_file = "ref.RDS"
   )
 
-  # Should not have MSI columns
-  expect_false("MSI_indels" %in% names(qc))
+  # All 18 columns should be present, even without VCFs
+  expected_cols <- c("sample", "bam_file", "reference_file", "snp_vcf", "somatic_vcf",
+                     "median_target_count", "gc_bias", "noise", "waviness",
+                     "het_snps", "hom_snps", "sex", "contamination",
+                     "somatic_snvs", "somatic_indels", "MSI_mono", "MSI_di", "MSI_tri")
+  expect_equal(names(qc), expected_cols)
+
+  # Somatic/SNP columns should be NA when not provided
+  expect_true(is.na(qc$somatic_snvs))
+  expect_true(is.na(qc$somatic_indels))
+  expect_true(is.na(qc$het_snps))
+  expect_true(is.na(qc$sex))
+})
+
+test_that("compute_snp_stats infers sex correctly", {
+  # Female: normal het density on X (non-PAR positions: 50M+)
+  snp_table <- data.table::data.table(
+    chromosome = c(rep("1", 100), rep("X", 40)),
+    start = c(seq(1e6, by = 1000, length.out = 100), seq(50e6, by = 1000, length.out = 40)),
+    AD = c(rep(15, 140)),
+    RD = c(rep(15, 140)),
+    DP = c(rep(30, 140))
+  )
+  targets <- data.table::data.table(
+    chromosome = c(rep("1", 500), rep("X", 200)),
+    start = c(seq(1e6, by = 500, length.out = 500), seq(50e6, by = 500, length.out = 200)),
+    end   = c(seq(1e6, by = 500, length.out = 500) + 499, seq(50e6, by = 500, length.out = 200) + 499),
+    is_target = TRUE
+  )
+  result <- compute_snp_stats(snp_table, targets)
+  expect_equal(result$sex, "female")
+
+  # Male: no hets on X — only autosomal SNPs
+  snp_table_male <- data.table::data.table(
+    chromosome = c(rep("1", 100)),
+    start = seq(1e6, by = 1000, length.out = 100),
+    AD = c(rep(15, 100)),
+    RD = c(rep(15, 100)),
+    DP = c(rep(30, 100))
+  )
+  result_male <- compute_snp_stats(snp_table_male, targets)
+  expect_equal(result_male$sex, "male")
 })
