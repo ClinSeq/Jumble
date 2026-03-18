@@ -385,6 +385,19 @@ generate_plots <- function(targets, segments, reference, output_dir,
       }
     )
   }
+  
+  # MSI VAF plot
+  if (!is.null(somatic) && "MSI" %in% names(somatic)) {
+    msi_plot_file <- file.path(output_dir, paste0(sample_name, ".msi.png"))
+    tryCatch(
+      {
+        plot_msi_vaf(somatic, msi_plot_file, title = sample_name)
+      },
+      error = function(e) {
+        warning("Failed to create MSI plot: ", conditionMessage(e))
+      }
+    )
+  }
 }
 
 #' Save Analysis Results
@@ -595,7 +608,8 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
     reference_file = reference_file,
     snp_vcf = snp_vcf,
     sample_name = sample_name,
-    contamination = contamination
+    contamination = contamination,
+    somatic = somatic
   )
   
   # 11. Plot
