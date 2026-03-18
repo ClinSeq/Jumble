@@ -1,147 +1,74 @@
 #' Compute Quality Control Metrics
 #'
-#' Calculates QC metrics for a Jumble analysis run.
+#' Calculates QC metrics for a Jumble analysis run. Always returns a fixed set
+#' of 18 columns, filling with NA when the required input is unavailable.
 #'
 #' @param targets Targets data.table with bin information and counts.
 #' @param bam_file Path to input BAM or counts file.
 #' @param reference_file Path to reference file.
 #' @param snp_vcf Path to SNP VCF file (optional).
+#' @param somatic_vcf Path to somatic VCF file (optional).
 #' @param sample_name Sample name.
 #' @param contamination Estimated contamination fraction (optional).
-#' @return A data.table with one row containing QC metrics.
+#' @param snp_table SNP data.table from process_snps (optional, for het/hom/sex).
+#' @param somatic Somatic variants data.table (optional, for SNV/indel/MSI counts).
+#' @return A data.table with one row containing 18 QC metric columns.
 #' @importFrom data.table data.table
 #' @keywords internal
 compute_qc_metrics <- function(targets, bam_file, reference_file,
-                               snp_vcf = NULL, sample_name = NULL,
+                               snp_vcf = NULL, somatic_vcf = NULL,
+                               sample_name = NULL,
                                contamination = NA_real_,
+                               snp_table = NULL,
                                somatic = NULL) {
-  # 1. Initialize ------------------------------------------------------------
+  # ── 1. Identity & Input Files ──────────────────────────────────────────────
+  sample_name <- if (!is.null(sample_name)) sample_name else NA_character_
   qc <- data.table(
-    sample = if (!is.null(sample_name)) sample_name else NA_character_,
-    bam_file = if (!is.null(bam_file)) basename(bam_file) else NA_character_,
-    reference_file = if (!is.null(reference_file)) {
-      basename(reference_file)
-    } else {
-      NA_character_
-    },
-    vcf_file = if (!is.null(snp_vcf)) basename(snp_vcf) else NA_character_,
-    contamination = contamination
+    sample         = sample_name,
+    bam_file       = if (!is.null(bam_file)) basename(bam_file) else NA_character_,
+    reference_file = if (!is.null(reference_file)) basename(reference_file) else NA_character_,
+    snp_vcf        = if (!is.null(snp_vcf)) basename(snp_vcf) else NA_character_,
+    somatic_vcf    = if (!is.null(somatic_vcf)) basename(somatic_vcf) else NA_character_
   )
 
-  # 2. Median Counts ---------------------------------------------------------
+  # ── 2. Technical QC (always computable from counts) ────────────────────────
   target_bins <- targets[is_target == TRUE]
-  if (nrow(target_bins) > 0) {
-    qc$median_target_count <- median(target_bins$count, na.rm = TRUE)
+
+  # Median target count
+  qc$median_target_count <- if (nrow(target_bins) > 0) {
+    median(target_bins$count, na.rm = TRUE)
   } else {
-    qc$median_target_count <- NA_real_
+    NA_real_
   }
 
-  # 3. GC Bias ---------------------------------------------------------------
-  # This metric assesses whether read coverage is biased by GC content.
-  # We compare the mean coverage of high-GC bins (50-60%) to low-GC bins
-  # (30-40%).
-  # Formula: log2(mean_high_gc / mean_low_gc)
-  # A value near 0 indicates no bias. Positive values indicate high-GC bias,
-  # negative values indicate low-GC bias.
+  # GC Bias
+  qc$gc_bias <- compute_gc_bias(targets)
 
-  # Define GC ranges:
-  # High-GC: 0.5 <= gc < 0.6
-  # Low-GC:  0.3 <= gc < 0.4
+  # Noise (Linear MAPD)
+  qc$noise <- compute_noise(target_bins)
 
-  # Filter for target bins with valid GC content
-  gc_bins <- targets[is_target == TRUE & !is.na(gc)]
+  # Waviness
+  qc$waviness <- compute_waviness(target_bins)
 
-  if (nrow(gc_bins) > 0) {
-    # Define GC ranges
-    low_gc_bins <- gc_bins[gc >= 0.3 & gc < 0.4]
-    high_gc_bins <- gc_bins[gc >= 0.5 & gc < 0.6]
+  # ── 3. Computed Estimates (require VCF inputs) ─────────────────────────────
+  # Het/hom SNPs and sex (require snp_table + targets)
+  snp_stats <- compute_snp_stats(snp_table, targets)
+  qc$het_snps      <- snp_stats$het_snps
+  qc$hom_snps      <- snp_stats$hom_snps
+  qc$sex           <- snp_stats$sex
+  qc$contamination <- contamination
 
-    # Calculate mean counts
-    mean_low_gc <- mean(low_gc_bins$count, na.rm = TRUE)
-    mean_high_gc <- mean(high_gc_bins$count, na.rm = TRUE)
+  # Somatic counts (require somatic table)
+  qc$somatic_snvs   <- NA_integer_
+  qc$somatic_indels  <- NA_integer_
+  qc$MSI_mono       <- NA_integer_
+  qc$MSI_di         <- NA_integer_
+  qc$MSI_tri        <- NA_integer_
 
-    # Compute GC bias (log2 ratio)
-    if (is.finite(mean_low_gc) && is.finite(mean_high_gc) &&
-      mean_low_gc > 0 && mean_high_gc > 0) {
-      qc$gc_bias <- log2(mean_high_gc / mean_low_gc)
-    } else {
-      qc$gc_bias <- NA_real_
-    }
-
-  } else {
-    qc$gc_bias <- NA_real_
-  }
-  # 5. Noise (Linear MAPD) ---------------------------------------------------
-  if (nrow(target_bins) >= 2 && "log2" %in% names(target_bins)) {
-    valid_log2 <- target_bins$log2[is.finite(target_bins$log2)]
-    if (length(valid_log2) >= 2) {
-      mapd <- median(abs(diff(valid_log2)))
-      qc$noise <- round((2^mapd) - 1, 2)
-    } else {
-      qc$noise <- NA_real_
-    }
-  } else {
-    qc$noise <- NA_real_
-  }
-
-  # 6. Waviness (1Mb Window Smoothed SD) -------------------------------------
-  if (nrow(target_bins) > 0 && "log2" %in% names(target_bins)) {
-    w_dt <- target_bins[is.finite(log2), .(chromosome, start, log2)]
-    if (nrow(w_dt) > 0) {
-      # Genomically sort to ensure runmed works correctly along the genome
-      chrom_levels <- c(as.character(1:22), "X", "Y")
-      w_dt[, sort_chr := stringr::str_remove(as.character(chromosome), "^chr")]
-      w_dt[, sort_fac := factor(sort_chr, levels = chrom_levels)]
-      data.table::setorder(w_dt, sort_fac, start, na.last = TRUE)
-
-      # Ensure sufficient points for smoothing
-      if (nrow(w_dt) >= 11) {
-        w_dt[, smoothed_log2 := stats::runmed(log2, k = 11, na.action = "na.omit")]
-      } else {
-        w_dt[, smoothed_log2 := log2]
-      }
-
-      # Segment into 1Mb windows
-      w_dt[, window_seq := floor(start / 1e6)]
-      w_dt[, window_id := paste0(sort_chr, "_", window_seq)]
-
-      # Compute SD per window
-      window_stats <- w_dt[, .(
-        N = sum(!is.na(smoothed_log2)),
-        sd_smoothed = {
-          if (sum(!is.na(smoothed_log2)) >= 5) {
-            stats::sd(smoothed_log2, na.rm = TRUE)
-          } else {
-            NA_real_
-          }
-        }
-      ), by = window_id]
-
-      # Filter out NA SDs/too-small windows
-      valid_windows <- window_stats[!is.na(sd_smoothed) & N >= 5]
-      
-      if (nrow(valid_windows) > 0) {
-        qc$waviness <- round(weighted_median(valid_windows$sd_smoothed, valid_windows$N), 2)
-      } else {
-        qc$waviness <- NA_real_
-      }
-    } else {
-      qc$waviness <- NA_real_
-    }
-  } else {
-    qc$waviness <- NA_real_
-  }
-
-  # Round gc_bias
-  if (!is.na(qc$gc_bias)) {
-    qc$gc_bias <- round(qc$gc_bias, 2)
-  }
-
-  # 7. Somatic & MSI Metrics -------------------------------------------------
   if (!is.null(somatic) && nrow(somatic) > 0) {
     is_indel <- nchar(somatic$REF) != nchar(somatic$ALT)
-    qc$total_snvs  <- sum(!is_indel)
-    qc$total_indels <- sum(is_indel)
+    qc$somatic_snvs  <- sum(!is_indel)
+    qc$somatic_indels <- sum(is_indel)
 
     if ("MSI" %in% names(somatic)) {
       msi_vals <- somatic$MSI[!is.na(somatic$MSI)]
@@ -153,6 +80,164 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
 
   return(qc)
 }
+
+
+#' Compute GC Bias Metric
+#'
+#' @param targets Targets data.table
+#' @return Numeric GC bias value (log2 ratio) or NA
+#' @keywords internal
+compute_gc_bias <- function(targets) {
+  gc_bins <- targets[is_target == TRUE & !is.na(gc)]
+  if (nrow(gc_bins) == 0) return(NA_real_)
+
+  low_gc_bins  <- gc_bins[gc >= 0.3 & gc < 0.4]
+  high_gc_bins <- gc_bins[gc >= 0.5 & gc < 0.6]
+
+  mean_low_gc  <- mean(low_gc_bins$count, na.rm = TRUE)
+  mean_high_gc <- mean(high_gc_bins$count, na.rm = TRUE)
+
+  if (is.finite(mean_low_gc) && is.finite(mean_high_gc) &&
+    mean_low_gc > 0 && mean_high_gc > 0) {
+    return(round(log2(mean_high_gc / mean_low_gc), 2))
+  }
+
+  NA_real_
+}
+
+
+#' Compute Noise (Linear MAPD)
+#'
+#' @param target_bins Target bins data.table
+#' @return Numeric noise value or NA
+#' @keywords internal
+compute_noise <- function(target_bins) {
+  if (nrow(target_bins) < 2 || !"log2" %in% names(target_bins)) return(NA_real_)
+
+  valid_log2 <- target_bins$log2[is.finite(target_bins$log2)]
+  if (length(valid_log2) < 2) return(NA_real_)
+
+  mapd <- median(abs(diff(valid_log2)))
+  round((2^mapd) - 1, 2)
+}
+
+
+#' Compute Waviness (1Mb Window Smoothed SD)
+#'
+#' @param target_bins Target bins data.table
+#' @return Numeric waviness value or NA
+#' @keywords internal
+compute_waviness <- function(target_bins) {
+  if (nrow(target_bins) == 0 || !"log2" %in% names(target_bins)) return(NA_real_)
+
+  w_dt <- target_bins[is.finite(log2), .(chromosome, start, log2)]
+  if (nrow(w_dt) == 0) return(NA_real_)
+
+  chrom_levels <- c(as.character(1:22), "X", "Y")
+  w_dt[, sort_chr := stringr::str_remove(as.character(chromosome), "^chr")]
+  w_dt[, sort_fac := factor(sort_chr, levels = chrom_levels)]
+  data.table::setorder(w_dt, sort_fac, start, na.last = TRUE)
+
+  if (nrow(w_dt) >= 11) {
+    w_dt[, smoothed_log2 := stats::runmed(log2, k = 11, na.action = "na.omit")]
+  } else {
+    w_dt[, smoothed_log2 := log2]
+  }
+
+  w_dt[, window_seq := floor(start / 1e6)]
+  w_dt[, window_id := paste0(sort_chr, "_", window_seq)]
+
+  window_stats <- w_dt[, .(
+    N = sum(!is.na(smoothed_log2)),
+    sd_smoothed = {
+      if (sum(!is.na(smoothed_log2)) >= 5) {
+        stats::sd(smoothed_log2, na.rm = TRUE)
+      } else {
+        NA_real_
+      }
+    }
+  ), by = window_id]
+
+  valid_windows <- window_stats[!is.na(sd_smoothed) & N >= 5]
+  if (nrow(valid_windows) == 0) return(NA_real_)
+
+  round(weighted_median(valid_windows$sd_smoothed, valid_windows$N), 2)
+}
+
+
+#' Compute Het/Hom SNP Counts and Infer Sex
+#'
+#' @param snp_table SNP data.table (NULL if no SNP VCF)
+#' @param targets Targets data.table (for counting X target bins)
+#' @return List with het_snps, hom_snps, sex
+#' @keywords internal
+compute_snp_stats <- function(snp_table, targets) {
+  result <- list(
+    het_snps = NA_integer_,
+    hom_snps = NA_integer_,
+    sex      = NA_character_
+  )
+
+  if (is.null(snp_table) || nrow(snp_table) == 0) return(result)
+
+  # Het: minor allele depth >= 2 AND minor allele ratio >= 1%
+  minor_depth <- pmin(snp_table$AD, snp_table$RD)
+  minor_ratio <- minor_depth / snp_table$DP
+  is_het <- minor_depth >= 2 & minor_ratio >= 0.01
+  is_het[is.na(is_het)] <- FALSE
+
+  result$het_snps <- sum(is_het)
+  result$hom_snps <- sum(!is_het)
+
+  # Sex inference: compare non-PAR chrX het density to autosomal het density
+  # Require >= 100 target bins on chrX to attempt
+  chrom_clean <- stringr::str_remove(as.character(targets$chromosome), "^chr")
+
+  # Pseudoautosomal regions (excluded — they behave like autosomes)
+  # PAR1 hg19: chrX:60001-2699520,    PAR2 hg19: chrX:154931044-155260560
+  # PAR1 hg38: chrX:10001-2781479,    PAR2 hg38: chrX:155701383-156030895
+  # Use the union of both genome builds for robustness
+  par_start <- c(10001, 154931044)
+  par_end   <- c(2781479, 156030895)
+
+  is_x_target <- chrom_clean == "X" & targets$is_target == TRUE
+  is_par_target <- is_x_target &
+    ((targets$start >= par_start[1] & targets$end <= par_end[1]) |
+     (targets$start >= par_start[2] & targets$end <= par_end[2]))
+  is_nonpar_x_target <- is_x_target & !is_par_target
+
+  n_x_targets <- sum(is_nonpar_x_target)
+  if (n_x_targets < 100) return(result)
+
+  snp_chrom <- stringr::str_remove(as.character(snp_table$chromosome), "^chr")
+  autosomes <- as.character(1:22)
+
+  # Exclude PAR SNPs from X het count
+  is_par_snp <- snp_chrom == "X" &
+    ((snp_table$start >= par_start[1] & snp_table$start <= par_end[1]) |
+     (snp_table$start >= par_start[2] & snp_table$start <= par_end[2]))
+
+  het_x    <- sum(is_het & snp_chrom == "X" & !is_par_snp)
+  het_auto <- sum(is_het & snp_chrom %in% autosomes)
+
+  n_auto_targets <- sum(chrom_clean %in% autosomes & targets$is_target == TRUE)
+
+  if (n_auto_targets == 0 || het_auto == 0) return(result)
+
+  het_per_target_x    <- het_x / n_x_targets
+  het_per_target_auto <- het_auto / n_auto_targets
+  ratio <- het_per_target_x / het_per_target_auto
+
+  if (ratio < 0.01) {
+    result$sex <- "male"
+  } else if (ratio > 0.05) {
+    result$sex <- "female"
+  }
+  # else NA (ambiguous)
+
+  return(result)
+}
+
 
 #' Write QC Metrics to CSV
 #'
