@@ -22,11 +22,12 @@ This package is a re-implementation of legacy Jumble R-scripts. It is currently 
 
 ## Installation
 
-You can install the development version of Jumble from GitHub (once hosted) or locally:
-
 ```r
-# Install from local source
-devtools::install(".")
+# Install from GitHub
+devtools::install_github("ClinSeq/Jumble")
+
+# Or install from a local clone
+devtools::install("/path/to/Jumble")
 ```
 
 ## Usage Workflow
