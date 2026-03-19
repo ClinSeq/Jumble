@@ -1,132 +1,88 @@
 # Quality Control Metrics
 
 ## Overview
-Jumble automatically generates quality control (QC) metrics for each sample analysis, saved as a CSV file.
+Jumble generates a QC CSV file for each sample. The file always contains 18 columns in a fixed order. Columns that require optional inputs (SNP VCF, somatic VCF) are filled with NA when those inputs are not provided.
 
 ## QC Output File
 
-**Filename**: `<sample_name>.qc.csv`  
+**Filename**: `<sample_name>.qc.csv`
 **Format**: CSV with header row and one data row per sample
 
-## QC Metrics
+## Column Reference
+
+### Identity
+| Column | Description |
+|--------|-------------|
+| `sample` | Sample name |
 
 ### Input Files
-- **sample**: Sample name
-- **bam_file**: Input BAM or counts file (basename)
-- **reference_file**: Reference file used (basename)
-- **vcf_file**: VCF file if provided (basename), otherwise NA
+| Column | Description |
+|--------|-------------|
+| `bam_file` | BAM or counts file (basename) |
+| `reference_file` | Reference panel file (basename) |
+| `snp_vcf` | Germline SNP VCF (basename), NA if not provided |
+| `somatic_vcf` | Somatic VCF (basename), NA if not provided |
 
-### Fragment Count Metrics
-- **median_target_count**: Median fragment count across target bins
-- **mean_target_count**: Mean fragment count across target bins
-- **total_bins**: Total number of bins
-- **target_bins**: Number of target bins
-- **background_bins**: Number of background bins (gene panel only)
+### Technical QC (always computed from counts)
+| Column | Description | Interpretation |
+|--------|-------------|----------------|
+| `median_target_count` | Median fragment count across target bins | Proxy for sequencing depth |
+| `gc_bias` | log2(high-GC / low-GC coverage) | 0 = no bias; positive = high-GC enriched |
+| `noise` | Linear MAPD (bin-to-bin noise) | Lower is better |
+| `waviness` | 1Mb-window smoothed coverage SD | Large-scale variability |
 
-### GC Content Bias
-- **gc_bias**: Log2 ratio of high-GC to low-GC bin counts
-  - Formula: `log2(mean_high_gc_count / mean_low_gc_count)`
-  - High-GC: bins with GC content 0.5-0.6
-  - Low-GC: bins with GC content 0.3-0.4
-  - Interpretation:
-    - **0**: No GC bias (ideal)
-    - **Positive**: High-GC bins have more fragments
-    - **Negative**: Low-GC bins have more fragments
-    - **Typical range**: -0.5 to +0.5
-
-- **n_low_gc_bins**: Number of bins in low-GC range (0.3-0.4)
-- **n_high_gc_bins**: Number of bins in high-GC range (0.5-0.6)
-- **mean_low_gc_count**: Mean fragment count in low-GC bins
-- **mean_high_gc_count**: Mean fragment count in high-GC bins
+### Computed Estimates (require VCF inputs)
+| Column | Requires | Description |
+|--------|----------|-------------|
+| `het_snps` | SNP VCF | Count of heterozygous germline SNPs |
+| `hom_snps` | SNP VCF | Count of homozygous germline SNPs |
+| `sex` | SNP VCF | Inferred chromosomal sex (`male`/`female`/NA) |
+| `contamination` | SNP VCF | Estimated cross-contamination fraction |
+| `somatic_snvs` | Somatic VCF | Count of somatic SNVs |
+| `somatic_indels` | Somatic VCF | Count of somatic indels |
+| `MSI_mono` | Somatic VCF | Indels in mononucleotide repeat tracts |
+| `MSI_di` | Somatic VCF | Indels in dinucleotide repeat tracts |
+| `MSI_tri` | Somatic VCF | Indels in trinucleotide repeat tracts |
 
 ## Example Output
 
 ```csv
-sample,bam_file,reference_file,vcf_file,median_target_count,gc_bias,n_low_gc_bins,n_high_gc_bins,mean_low_gc_count,mean_high_gc_count,total_bins,target_bins,background_bins,mean_target_count
-BM-P-HRD01,sample.counts.RDS,reference.RDS,sample.vcf.gz,1947,0.2415,6812,2854,1920.21,2270.16,21781,18853,2928,2069.12
+sample,bam_file,reference_file,snp_vcf,somatic_vcf,median_target_count,gc_bias,noise,waviness,het_snps,hom_snps,sex,contamination,somatic_snvs,somatic_indels,MSI_mono,MSI_di,MSI_tri
+SampleA,sample.counts.RDS,reference.RDS,germline.vcf.gz,somatic.vcf,2140,2.7,0.29,0.13,4541,150,"female",,536,329,260,8,3
 ```
 
 ## Interpreting QC Metrics
 
-### Fragment Count
-- **Median target count**: Typical coverage depth
-  - Gene panel: 500-5000 fragments/bin typical
-  - WGS: 10-100 fragments/bin typical
-  - Low values may indicate poor sequencing quality
-
-### GC Bias
-- **Ideal**: Close to 0 (no bias)
-- **Acceptable**: -0.3 to +0.3
-- **Concerning**: > |0.5|
-- **Causes**: PCR amplification bias, library preparation issues
-- **Impact**: May affect copy number calling accuracy
-
-### Bin Counts
-- **Target bins**: Should match expected panel size
-- **Background bins**: Gene panel only (off-target regions)
-- Unexpected values may indicate:
-  - Wrong reference file
-  - BED file mismatch
-  - Data processing errors
-
-## Using QC Metrics
-
-### In R
-```r
-# Read QC metrics
-qc <- read.csv("sample.qc.csv")
-
-# Check GC bias
-if (abs(qc$gc_bias) > 0.5) {
-    warning("High GC bias detected: ", qc$gc_bias)
-}
-
-# Check coverage
-if (qc$median_target_count < 500) {
-    warning("Low coverage: ", qc$median_target_count)
-}
-```
-
-### Batch Analysis
-```r
-# Collect QC from multiple samples
-qc_files <- list.files(pattern = "\\.qc\\.csv$")
-qc_data <- do.call(rbind, lapply(qc_files, read.csv))
-
-# Summary statistics
-summary(qc_data$gc_bias)
-summary(qc_data$median_target_count)
-
-# Plot QC metrics
-library(ggplot2)
-ggplot(qc_data, aes(x = median_target_count, y = gc_bias)) +
-    geom_point() +
-    labs(title = "QC Metrics Overview")
-```
-
-### Pipeline Integration
-```bash
-# Extract QC metrics for all samples
-for qc in *.qc.csv; do
-    sample=$(basename $qc .qc.csv)
-    gc_bias=$(awk -F',' 'NR==2 {print $6}' $qc)
-    coverage=$(awk -F',' 'NR==2 {print $5}' $qc)
-    echo "$sample,$gc_bias,$coverage"
-done > qc_summary.csv
-```
-
-## QC Thresholds (Suggested)
+### Technical QC Thresholds
 
 | Metric | Good | Acceptable | Poor |
 |--------|------|------------|------|
 | **GC Bias** | \|x\| < 0.2 | \|x\| < 0.5 | \|x\| ≥ 0.5 |
+| **Noise (MAPD)** | < 0.15 | < 0.30 | ≥ 0.30 |
 | **Median Count (Panel)** | > 1000 | > 500 | < 500 |
 | **Median Count (WGS)** | > 50 | > 20 | < 20 |
+
+### Sex Inference
+Inferred from chrX heterozygosity relative to autosomal rate, excluding pseudoautosomal regions (PAR1/PAR2). Returns `male` if ratio < 1%, `female` if ratio > 5%, or NA if ambiguous or fewer than 100 chrX target bins.
+
+### Het/Hom SNP Thresholds
+A SNP is classified as heterozygous if: minor allele depth ≥ 2 AND minor allele ratio ≥ 1%.
+
+## Usage
+
+### Batch Analysis
+```r
+# Aggregate QC from multiple samples
+qc_files <- list.files(pattern = "\\.qc\\.csv$", recursive = TRUE)
+qc_data <- do.call(rbind, lapply(qc_files, data.table::fread))
+
+summary(qc_data$noise)
+summary(qc_data$gc_bias)
+table(qc_data$sex)
+```
 
 ## Automatic Generation
 
 QC metrics are automatically generated by:
 - `run_jumble()` function
 - `jumble-run.R` command-line script
-
-No additional configuration required.

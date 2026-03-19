@@ -273,8 +273,18 @@ map_variants_to_bins <- function(somatic, reference) {
       seqnames = somatic$chromosome,
       ranges = IRanges::IRanges(start = somatic$start, end = somatic$end)
     )
-    ol <- GenomicRanges::findOverlaps(reference$ranges, som_gr)
-    
+
+    # Harmonise chromosome naming to match somatic (bare names, no "chr" prefix)
+    ref_gr <- reference$ranges
+    ref_chroms <- as.character(GenomeInfoDb::seqnames(ref_gr))
+    if (any(grepl("^chr", ref_chroms))) {
+      GenomeInfoDb::seqlevelsStyle(ref_gr) <- "NCBI"
+    }
+
+    ol <- suppressWarnings(
+      GenomicRanges::findOverlaps(ref_gr, som_gr)
+    )
+
     somatic[, bin := NA_integer_]
     somatic[S4Vectors::subjectHits(ol), bin := S4Vectors::queryHits(ol)]
   } else {
