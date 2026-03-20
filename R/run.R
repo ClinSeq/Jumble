@@ -363,6 +363,11 @@ generate_plots <- function(targets, segments, reference, output_dir,
   if (!is.null(qc_metrics)) {
     plot_title <- sprintf("%s | GC-Bias: %.2f | Noise: %.2f | Waviness: %.2f", 
                           sample_name, qc_metrics$gc_bias, qc_metrics$noise, qc_metrics$waviness)
+    # Add MSI score (mono + di) if somatic VCF was provided
+    if (!is.na(qc_metrics$MSI_mono) && !is.na(qc_metrics$MSI_di)) {
+      msi_score <- qc_metrics$MSI_mono + qc_metrics$MSI_di
+      plot_title <- sprintf("%s | Repeat Tract Indels: %d", plot_title, msi_score)
+    }
   }
   
   plot_file <- file.path(output_dir, paste0(sample_name, ".png"))
