@@ -580,6 +580,7 @@ cleanup_temp_columns <- function(targets, cols_to_remove) {
 compute_reference_pca <- function(reference) {
   # 1. Reconstruct and define backbone
   targets <- reconstruct_targets_from_reference(reference)
+  targets[, chromosome := clean_chrom_names(chromosome)]
   targets <- define_backbone(targets)
   
   # 2. Filter bins by coverage

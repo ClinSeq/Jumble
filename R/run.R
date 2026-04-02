@@ -536,13 +536,29 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   # 1. Load Reference
   reference <- load_reference_data(reference_file)
   
-  # 2. Reference PCA
-  message("Computing reference PCA...")
-  ref_pca <- compute_reference_pca(reference)
-  
-  # 3. Load or Generate Counts
+  # 2. Load or Generate Counts
   message("Generating counts for query sample...")
   counts <- load_or_generate_counts(bam_file, reference, output_dir)
+  
+  # 3. Leave-Me-Out: Check if test sample exists in reference by counting data
+  if (!is.null(reference$allcounts)) {
+    match_idx <- integer(0)
+    for (i in seq_along(reference$allcounts)) {
+      if (isTRUE(all.equal(counts$count, reference$allcounts[[i]]$count)) && 
+          isTRUE(all.equal(counts$count_short, reference$allcounts[[i]]$count_short))) {
+        match_idx <- c(match_idx, i)
+      }
+    }
+    if (length(match_idx) > 0) {
+      message("Test sample matched in reference. Excluding it before PCA...")
+      reference$allcounts <- reference$allcounts[-match_idx]
+      reference$samples <- reference$samples[-match_idx]
+    }
+  }
+
+  # 4. Reference PCA
+  message("Computing reference PCA...")
+  ref_pca <- compute_reference_pca(reference)
   
   # 4. Prepare Targets
   targets <- prepare_targets(reference, counts, bam_file)
