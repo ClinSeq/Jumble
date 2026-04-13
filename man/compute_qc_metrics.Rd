@@ -9,8 +9,11 @@ compute_qc_metrics(
   bam_file,
   reference_file,
   snp_vcf = NULL,
+  somatic_vcf = NULL,
   sample_name = NULL,
-  contamination = NA_real_
+  contamination = NA_real_,
+  snp_table = NULL,
+  somatic = NULL
 )
 }
 \arguments{
@@ -22,14 +25,21 @@ compute_qc_metrics(
 
 \item{snp_vcf}{Path to SNP VCF file (optional).}
 
+\item{somatic_vcf}{Path to somatic VCF file (optional).}
+
 \item{sample_name}{Sample name.}
 
 \item{contamination}{Estimated contamination fraction (optional).}
+
+\item{snp_table}{SNP data.table from process_snps (optional, for het/hom/sex).}
+
+\item{somatic}{Somatic variants data.table (optional, for SNV/indel/MSI counts).}
 }
 \value{
-A data.table with one row containing QC metrics.
+A data.table with one row containing 18 QC metric columns.
 }
 \description{
-Calculates QC metrics for a Jumble analysis run.
+Calculates QC metrics for a Jumble analysis run. Always returns a fixed set
+of 18 columns, filling with NA when the required input is unavailable.
 }
 \keyword{internal}

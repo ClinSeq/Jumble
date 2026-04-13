@@ -10,6 +10,7 @@ load_reference_data <- function(reference_file) {
   } else {
     reference <- reference_file
   }
+  
   return(reference)
 }
 
@@ -24,6 +25,8 @@ load_or_generate_counts <- function(bam_file, reference, output_dir) {
   # Check if input is pre-computed counts
   if (grepl("\\.RDS$", bam_file, ignore.case = TRUE)) {
     counts <- readRDS(bam_file)
+    counts <- sanitize_legacy_counts(counts)
+    
     counts <- reorder_counts_to_reference(counts, reference)
   } else {
     counts <- generate_counts_from_bam(bam_file, reference, output_dir)
@@ -339,6 +342,81 @@ compute_gis_and_maf <- function(targets, snp_table, reference) {
   targets[, maf := as.numeric(NA)]
   targets[S4Vectors::subjectHits(hits), maf := snps_sub[S4Vectors::queryHits(hits)]$maf]
   
+  # Compute local_snp_bg for somatic rare SNP filtering
+  # 1. Smooth within segment
+  targets[, local_snp_bg := as.numeric(NA)]
+  
+  safe_runmed <- function(x) {
+    valid <- !is.na(x)
+    n <- sum(valid)
+    if (n == 0) return(x)
+    if (n <= 2) {
+      x[valid] <- median(x[valid])
+      return(x)
+    }
+    k <- min(9, n)
+    if (k %% 2 == 0) k <- k - 1
+    x[valid] <- stats::runmed(x[valid], k)
+    return(x)
+  }
+  
+  targets[, local_snp_bg := safe_runmed(maf), by = segment]
+  
+  targets[, local_snp_bg := {
+    if (sum(!is.na(local_snp_bg)) >= 2) {
+      stats::approx(1:.N, local_snp_bg, xout = 1:.N, rule = 2)$y
+    } else if (sum(!is.na(local_snp_bg)) == 1) {
+      rep(mean(local_snp_bg, na.rm = TRUE), .N)
+    } else {
+      rep(as.numeric(NA), .N)
+    }
+  }, by = segment]
+  
+  # 2. Extrapolate missing segments strictly from structurally adjacent valid logR boundaries
+  for (chr in unique(targets$chromosome)) {
+    chr_idx <- which(targets$chromosome == chr)
+    seg_ids <- unique(targets$segment[chr_idx])
+    if (length(seg_ids) == 0) next
+    
+    seg_summary <- lapply(seg_ids, function(s) {
+      idx <- which(targets$segment == s & targets$chromosome == chr)
+      list(segment = s, log2 = median(targets$smooth_log2[idx], na.rm = TRUE), bg = median(targets$local_snp_bg[idx], na.rm = TRUE))
+    })
+    seg_dt <- data.table::rbindlist(seg_summary)
+    
+    valid_indices <- which(!is.na(seg_dt$bg))
+    if (length(valid_indices) == 0) {
+      targets[chromosome == chr, local_snp_bg := 0.5]
+    } else {
+      for (i in which(is.na(seg_dt$bg))) {
+        left_idx <- valid_indices[valid_indices < i]
+        left_idx <- if (length(left_idx) > 0) max(left_idx) else NA
+        
+        right_idx <- valid_indices[valid_indices > i]
+        right_idx <- if (length(right_idx) > 0) min(right_idx) else NA
+        
+        if (is.na(left_idx)) {
+          best_bg <- seg_dt$bg[right_idx]
+        } else if (is.na(right_idx)) {
+          best_bg <- seg_dt$bg[left_idx]
+        } else {
+          dist_left <- abs(seg_dt$log2[i] - seg_dt$log2[left_idx])
+          dist_right <- abs(seg_dt$log2[i] - seg_dt$log2[right_idx])
+          if (is.na(dist_left) && is.na(dist_right)) {
+            best_bg <- seg_dt$bg[left_idx]
+          } else if (is.na(dist_left)) {
+            best_bg <- seg_dt$bg[right_idx]
+          } else if (is.na(dist_right)) {
+            best_bg <- seg_dt$bg[left_idx]
+          } else {
+            best_bg <- if (dist_left <= dist_right) seg_dt$bg[left_idx] else seg_dt$bg[right_idx]
+          }
+        }
+        targets[chromosome == chr & segment == seg_dt$segment[i], local_snp_bg := best_bg]
+      }
+    }
+  }
+  
   return(list(gis_table = gis_table, targets = targets))
 }
 
@@ -367,6 +445,10 @@ generate_plots <- function(targets, segments, reference, output_dir,
     if (!is.na(qc_metrics$MSI_mono) && !is.na(qc_metrics$MSI_di)) {
       msi_score <- qc_metrics$MSI_mono + qc_metrics$MSI_di
       plot_title <- sprintf("%s | Repeat Tract Indels: %d", plot_title, msi_score)
+    }
+    # Add TMB score if available and valid
+    if (!is.null(qc_metrics$TMB_score) && !is.na(qc_metrics$TMB_score) && qc_metrics$TMB_score != "NA") {
+      plot_title <- sprintf("%s | TMB: %s", plot_title, qc_metrics$TMB_score)
     }
   }
   
@@ -400,6 +482,19 @@ generate_plots <- function(targets, segments, reference, output_dir,
       },
       error = function(e) {
         warning("Failed to create MSI plot: ", conditionMessage(e))
+      }
+    )
+  }
+  
+  # TMB VAF plot
+  if (!is.null(somatic)) {
+    tmb_plot_file <- file.path(output_dir, paste0(sample_name, ".tmb.png"))
+    tryCatch(
+      {
+        plot_tmb_vaf(somatic, targets, tmb_plot_file, title = sample_name)
+      },
+      error = function(e) {
+        warning("Failed to create TMB plot: ", conditionMessage(e))
       }
     )
   }
@@ -614,6 +709,15 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   if (!is.null(somatic_vcf)) {
     use_genome <- if (!is.null(genome)) genome else if (!is.null(reference$genome)) reference$genome else "hg19"
     somatic <- process_somatic_vcf(somatic_vcf, reference, genome = use_genome)
+    
+    # Rare germline SNP rejection flagging (LOH integration)
+    if (!is.null(somatic) && nrow(somatic) > 0 && "local_snp_bg" %in% names(targets)) {
+      somatic[, somatic_maf := 0.5 + abs(AF - 0.5)]
+      somatic[, background_maf := targets$local_snp_bg[bin]]
+      somatic[, is_indel := nchar(REF) != nchar(ALT)]
+      somatic[, maf_diff := abs(somatic_maf - background_maf)]
+      somatic[, is_rare_snp := !is.na(maf_diff) & maf_diff <= 0.05]
+    }
   }
   
   # 10. Compute QC Metrics

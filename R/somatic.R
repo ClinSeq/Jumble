@@ -88,7 +88,7 @@ parse_vep_csq <- function(vcf, keep_mask) {
   csq_desc <- if ("CSQ" %in% rownames(vcf_header_info)) vcf_header_info$Description[rownames(vcf_header_info) == "CSQ"] else character(0)
   
   n_rows <- sum(keep_mask)
-  cols <- c("SYMBOL", "Consequence", "Protein_position", "CANONICAL", "IMPACT", "CLIN_SIG", "Amino_acids")
+  cols <- c("SYMBOL", "Consequence", "Protein_position", "CANONICAL", "IMPACT", "CLIN_SIG", "Amino_acids", "MAX_AF")
   res <- data.table::data.table(matrix(NA_character_, nrow = n_rows, ncol = length(cols)))
   names(res) <- cols
   
@@ -374,6 +374,13 @@ process_somatic_vcf <- function(vcf_file, reference, genome = "hg19") {
   # 3. Parse VEP Annotations for Kept Rows
   csq_dt <- parse_vep_csq(vcf, keep_mask)
   somatic <- cbind(somatic, csq_dt)
+
+  # 3.5 Aggressive Population Frequency Extirpation
+  if ("MAX_AF" %in% names(somatic)) {
+    pop_af <- suppressWarnings(as.numeric(somatic$MAX_AF))
+    pop_af[is.na(pop_af)] <- 0
+    somatic <- somatic[pop_af == 0]
+  }
 
   # 4. Annotate Hotspots
   somatic <- annotate_hotspots(somatic, genome)

@@ -1,7 +1,7 @@
 Package: Jumble
 Type: Package
 Title: Copy Number Analysis of Short Read Sequencing Data
-Version: 0.4.1
+Version: 0.5.0
 Authors@R: c(
     person("Markus", "Mayrhofer", email = "markus.mayrhofer@ki.se", role = c("aut", "cre")),
     person("Johan", "Lindberg", role = "aut"),
@@ -17,6 +17,7 @@ biocViews: Software, CopyNumberVariation, Sequencing, Coverage, WholeGenome, Tar
 RoxygenNote: 7.3.2
 Imports: 
     bamsignals,
+    BiocGenerics,
     Biostrings,
     BSgenome,
     BSgenome.Hsapiens.UCSC.hg19,

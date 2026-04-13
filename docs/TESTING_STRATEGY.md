@@ -17,6 +17,9 @@ devtools::test()
 - ✅ WGS processing
 - ✅ SNP processing with VCF
 - ✅ Reference building
+- ✅ MSI classification
+- ✅ Regression with anonymized patient data
+- ✅ Legacy counts sanitization (phantom bin removal)
 
 ## Test Data Locations
 

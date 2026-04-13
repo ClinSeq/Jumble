@@ -71,17 +71,44 @@ setup_plot_theme <- function() {
 #' @param targets data.table with smooth_log2 column
 #' @return List with ylims, ybreaks, yminorbreaks
 #' @keywords internal
-prepare_yaxis_params <- function(targets) {
+prepare_yaxis_params <- function(targets, segments = NULL) {
+  ymax <- 3
+  if (!is.null(segments) && nrow(segments) > 0 && "nbrOfLoci" %in% names(segments)) {
+    valid_segs <- segments[nbrOfLoci >= 10, ]
+    if (nrow(valid_segs) > 0) {
+      ymax <- max(3, max(2^valid_segs$mean, na.rm = TRUE))
+    }
+  }
+  ymax <- ymax * 1.1
+  
   ylims <- c(
     min(0.4, min(2^targets[chromosome != "Y"]$smooth_log2, na.rm = TRUE)),
-    max(3, max(2^targets$smooth_log2, na.rm = TRUE))
+    ymax
   )
   
-  ybreaks <- c(.5, .75, 1, 1.5, 2, 3, 4, 6, 8)
+  ybreaks <- c(.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16)
   ybreaks <- ybreaks[ybreaks >= ylims[1] & ybreaks <= ylims[2]]
-  yminorbreaks <- c(1.25, 1.75)
+  yminorbreaks <- NULL
   
   list(ylims = ylims, ybreaks = ybreaks, yminorbreaks = yminorbreaks)
+}
+
+#' Piecewise Log2 Linear Transform Scale
+#'
+#' Provides a perfectly joined continuous scale map passing linear `x` below 1 multiplied dynamically scaling visually seamlessly into `log2(x) + offset` bridging perfectly mapping exact distances tracking proportionally visually uniformly visually.
+#'
+#' @return continuous transformation object
+#' @keywords internal
+piecewise_log2_trans <- function() {
+  scales::trans_new(
+    name = "piecewise_log2",
+    transform = function(x) {
+      ifelse(x <= 1, as.numeric(1.2 * x), as.numeric(log2(pmax(x, 1)) + 1.2))
+    },
+    inverse = function(y) {
+      ifelse(y <= 1.2, as.numeric(y / 1.2), as.numeric(2^(y - 1.2)))
+    }
+  )
 }
 
 #' Prepare Depth (X-axis) Parameters
@@ -123,16 +150,20 @@ prepare_chromosome_data <- function(targets, reference = NULL) {
   chroms <- chroms[match(chrom_levels, chromosome)]
   chroms <- chroms[!is.na(chromosome)]
   
+  # Separate biology length from padded plotting length spacing gap
+  chroms[, true_length := as.double(length)]
+  chroms[, length := as.double(true_length + 10000000)]
+
   # Calculate cumulative positions
   chroms[, start := as.double(0)]
   chroms[, stop := as.double(length)]
-  chroms[, mid := as.double(round(length / 2))]
+  chroms[, mid := as.double(5000000 + round(true_length / 2))]
   
   if (nrow(chroms) >= 2) {
-    for (i in 2:nrow(chroms)) {
+    for (i in seq_len(nrow(chroms))[-1]) {
       chroms[i, start := chroms$stop[i - 1]]
       chroms[i, stop := chroms$stop[i - 1] + length]
-      chroms[i, mid := chroms$stop[i - 1] + round(length / 2)]
+      chroms[i, mid := chroms$start[i] + 5000000 + round(true_length / 2)]
     }
   }
   
@@ -166,23 +197,31 @@ prepare_chromosome_data <- function(targets, reference = NULL) {
 add_genomic_positions <- function(targets, segments, chroms) {
   # Add genomic positions to targets
   targets[, gpos := as.numeric(start)]
-  for (chr in unique(targets$chromosome)[-1]) {
+  for (chr in unique(targets$chromosome)) {
     chr_idx <- which(chroms$chromosome == chr)
     if (length(chr_idx) > 0) {
-      offset <- sum(chroms[1:(chr_idx - 1)]$length)
+      offset <- 5000000
+      if (chr_idx > 1) {
+        offset <- offset + sum(chroms[1:(chr_idx - 1)]$length)
+      }
       targets[chromosome == chr, gpos := gpos + offset]
     }
   }
   
   # Add genomic positions to segments
-  segments[, gstart := as.double(start_pos)]
-  segments[, gstop := as.double(end_pos)]
-  for (chr in unique(segments$chromosome)[-1]) {
-    chr_idx <- which(chroms$chromosome == chr)
-    if (length(chr_idx) > 0) {
-      offset <- sum(chroms[1:(chr_idx - 1)]$length)
-      segments[chromosome == chr, gstart := gstart + offset]
-      segments[chromosome == chr, gstop := gstop + offset]
+  if (!is.null(segments) && nrow(segments) > 0 && "start_pos" %in% names(segments)) {
+    segments[, gstart := as.double(start_pos)]
+    segments[, gstop := as.double(end_pos)]
+    for (chr in unique(segments$chromosome)) {
+      chr_idx <- which(chroms$chromosome == chr)
+      if (length(chr_idx) > 0) {
+        offset <- 5000000
+        if (chr_idx > 1) {
+          offset <- offset + sum(chroms[1:(chr_idx - 1)]$length)
+        }
+        segments[chromosome == chr, gstart := gstart + offset]
+        segments[chromosome == chr, gstop := gstop + offset]
+      }
     }
   }
   
@@ -424,7 +463,7 @@ plot_order_rawdepth <- function(targets, cancergenes_summary, chroms_order,
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
-      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
     ) +
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
@@ -482,7 +521,7 @@ plot_pos_rawdepth <- function(targets, cancergenes_summary, chroms,
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
-      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
     ) +
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
@@ -494,7 +533,8 @@ plot_pos_rawdepth <- function(targets, cancergenes_summary, chroms,
     ) +
     scale_x_continuous(
       breaks = chroms$mid, minor_breaks = chroms$start[-1],
-      expand = c(.01, .01), labels = chroms$chromosome
+      expand = c(.01, .01), labels = chroms$chromosome,
+      limits = c(0, sum(chroms$length))
     ) +
     coord_cartesian(clip = "off") +
     theme(
@@ -530,10 +570,12 @@ plot_gc_log2 <- function(targets, yaxis_params, theme_params) {
       strip.background = element_blank(),
       strip.text.x = element_blank()
     ) +
-    scale_y_log10(
+    scale_y_continuous(
+      trans = piecewise_log2_trans(),
       limits = yaxis_params$ylims, 
       breaks = yaxis_params$ybreaks, 
-      minor_breaks = yaxis_params$yminorbreaks
+      minor_breaks = yaxis_params$yminorbreaks,
+      labels = function(x) as.character(round(x, 2))
     )
 }
 
@@ -575,14 +617,16 @@ plot_order_log2 <- function(targets, segments, cancergenes_summary, chroms_order
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
-      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
     ) +
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
-    scale_y_log10(
+    scale_y_continuous(
+      trans = piecewise_log2_trans(),
       limits = yaxis_params$ylims, 
       breaks = yaxis_params$ybreaks, 
-      minor_breaks = yaxis_params$yminorbreaks
+      minor_breaks = yaxis_params$yminorbreaks,
+      labels = function(x) as.character(round(x, 2))
     ) +
     scale_x_continuous(
       breaks = chroms_order$mid, minor_breaks = chroms_order$start[-1],
@@ -637,18 +681,21 @@ plot_pos_log2 <- function(targets, segments, cancergenes_summary, chroms,
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
-      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
     ) +
     scale_fill_hue(l = 70, na.value = "grey50") +
     scale_color_hue(l = 70) +
-    scale_y_log10(
+    scale_y_continuous(
+      trans = piecewise_log2_trans(),
       limits = yaxis_params$ylims, 
       breaks = yaxis_params$ybreaks, 
-      minor_breaks = yaxis_params$yminorbreaks
+      minor_breaks = yaxis_params$yminorbreaks,
+      labels = function(x) as.character(round(x, 2))
     ) +
     scale_x_continuous(
       breaks = chroms$mid, minor_breaks = chroms$start[-1],
-      expand = c(.01, .01), labels = chroms$chromosome
+      expand = c(.01, .01), labels = chroms$chromosome,
+      limits = c(0, sum(chroms$length))
     ) +
     coord_cartesian(clip = "off") +
     theme(
@@ -854,7 +901,7 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = bin, y = Inf, label = selected_genes, color = selected_genes),
-      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
     ) +
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
@@ -917,13 +964,14 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     geom_text(
       data = cancergenes_summary,
       mapping = aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
-      angle = 45, hjust = 0, size = 2.5, vjust = 0, show.legend = FALSE
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
     ) +
     scale_fill_hue(l = 70) +
     scale_color_hue(l = 70) +
     scale_x_continuous(
       breaks = chroms$mid, minor_breaks = chroms$start[-1],
-      expand = c(.01, .01), labels = chroms$chromosome
+      expand = c(.01, .01), labels = chroms$chromosome,
+      limits = c(0, sum(chroms$length))
     ) +
     scale_y_continuous(limits = c(0, 1), breaks = c(0, .25, .5, .75, 1)) +
     coord_cartesian(clip = "off") +
@@ -1005,47 +1053,256 @@ format_plot_legends <- function(plot_list) {
   plot_list
 }
 
+#' Build Ideogram Strip
+#'
+#' @param chroms data.table with chromosome lengths
+#' @return ggplot object
+#' @keywords internal
+build_ideogram_strip <- function(chroms) {
+  # Determine genome build based on chr1 length
+  genome_version <- "hg38"
+  chr1_len <- chroms$length[chroms$chromosome == "1"][1]
+  if (!is.na(chr1_len) && chr1_len > 249000000) {
+    genome_version <- "hg19"
+  }
+  
+  cyto_file <- system.file("extdata", paste0("cytoband_", genome_version, ".rds"), package = "Jumble")
+  cyto <- NULL
+  if (file.exists(cyto_file)) {
+    cyto <- readRDS(cyto_file)
+  }
+  
+  df_bands <- data.table::data.table()
+  df_outlines <- data.table::data.table()
+  
+  stain_colors <- c(
+    gneg    = "white",
+    gpos25  = "grey80",
+    gpos50  = "grey60",
+    gpos75  = "grey40",
+    gpos100 = "grey20",
+    gpos    = "grey20",
+    acen    = "darkred",
+    gvar    = "black",
+    stalk   = "grey90"
+  )
+  
+  for (i in seq_len(nrow(chroms))) {
+    chr <- chroms$chromosome[i]
+    chr_offset <- 5000000
+    if (i > 1) chr_offset <- chr_offset + sum(chroms$length[1:(i - 1)])
+    chr_len <- chroms$true_length[i]
+    if (is.null(chr_len) || is.na(chr_len)) chr_len <- chroms$length[i]
+    radius <- min(chr_len / 4, 15000000)
+    
+    if (!is.null(cyto)) {
+      bds <- cyto[chromosome == chr]
+    } else {
+      bds <- data.table::data.table()
+    }
+    
+    # Fallback if no bands are available
+    if (nrow(bds) == 0) {
+      arms <- list(whole = list(start = 0, end = chr_len))
+      bds <- data.table::data.table(start = 0, end = chr_len, gieStain = "gpos25")
+    } else {
+      # Determine p and q arms based on acen
+      acen_idx <- which(bds$gieStain == "acen")
+      if (length(acen_idx) >= 2) {
+        arm_p_end <- bds$end[acen_idx[1]]
+        arm_q_start <- bds$start[acen_idx[2]]
+        arms <- list(
+          p = list(start = bds$start[1], end = arm_p_end),
+          q = list(start = arm_q_start, end = bds$end[nrow(bds)])
+        )
+      } else {
+        arms <- list(
+          whole = list(start = bds$start[1], end = bds$end[nrow(bds)])
+        )
+      }
+    }
+    
+    # Process arms and bands
+    for (arm_name in names(arms)) {
+      arm <- arms[[arm_name]]
+      a_start <- chr_offset + arm$start
+      a_end <- chr_offset + arm$end
+      
+      rad_left <- min(radius, (a_end - a_start)/2)
+      rad_right <- min(radius, (a_end - a_start)/2)
+      
+      # 1. Master outline coordinates
+      angles_l <- seq(pi/2, 3*pi/2, length.out=30)
+      lc_x <- a_start + rad_left + rad_left * cos(angles_l)
+      lc_y <- 0.5 + 0.5 * sin(angles_l)
+      
+      angles_r <- seq(-pi/2, pi/2, length.out=30)
+      rc_x <- a_end - rad_right + rad_right * cos(angles_r)
+      rc_y <- 0.5 + 0.5 * sin(angles_r)
+      
+      df_outlines <- rbind(df_outlines, data.table::data.table(
+        x = c(lc_x, rc_x), y = c(lc_y, rc_y),
+        outline_id = paste(chr, arm_name, sep="_"),
+        chromosome = chr
+      ))
+      
+      # 2. Interior cytobands clipped to master outline
+      arm_bds <- bds[start >= arm$start & end <= arm$end]
+      if (nrow(arm_bds) == 0) arm_bds <- bds[end > arm$start & start < arm$end]
+      
+      for (j in seq_len(nrow(arm_bds))) {
+        b <- arm_bds[j]
+        b_s <- max(chr_offset + b$start, a_start)
+        b_e <- min(chr_offset + b$end, a_end)
+        if (b_s >= b_e) next
+        
+        step <- max(1, (b_e - b_s) / 20)
+        xs <- seq(b_s, b_e, by = step)
+        if (xs[length(xs)] < b_e) xs <- c(xs, b_e)
+        
+        dy <- rep(0.5, length(xs))
+        
+        in_left <- xs < (a_start + rad_left)
+        if (any(in_left)) {
+          dy[in_left] <- 0.5 * sqrt(pmax(0, 1 - (( (a_start + rad_left) - xs[in_left] ) / rad_left)^2))
+        }
+        
+        in_right <- xs > (a_end - rad_right)
+        if (any(in_right)) {
+          dy[in_right] <- 0.5 * sqrt(pmax(0, 1 - (( xs[in_right] - (a_end - rad_right) ) / rad_right)^2))
+        }
+        
+        df_bands <- rbind(df_bands, data.table::data.table(
+          x = c(xs, rev(xs)), 
+          y = c(0.5 + dy, rev(0.5 - dy)),
+          band_id = paste(chr, arm_name, j, sep="_"),
+          stain = b$gieStain
+        ))
+      }
+    }
+  }
+  
+  ggplot2::ggplot() +
+    ggplot2::geom_polygon(
+      data = df_bands, aes(x = x, y = y, group = band_id, fill = stain),
+      color = NA
+    ) +
+    ggplot2::geom_polygon(
+      data = df_outlines, aes(x = x, y = y, group = outline_id),
+      fill = NA, color = "black", linewidth = 0.3
+    ) +
+    ggplot2::scale_fill_manual(values = stain_colors) +
+    ggplot2::scale_y_continuous(limits = c(0, 1), expand = c(0, 0)) +
+    ggplot2::scale_x_continuous(limits = c(0, sum(chroms$length)), expand = c(.01, .01)) +
+    ggplot2::theme_void() +
+    ggplot2::theme(plot.margin = ggplot2::margin(t = 0, r = 0, b = 0, l = 0), legend.position = "none")
+}
+
+#' Strip Bottom Axis
+#'
+#' @param p ggplot object
+#' @return ggplot object with x-axis stripped, but line retained
+#' @keywords internal
+strip_bottom_axis <- function(p) {
+  p + ggplot2::theme(
+    axis.title.x = ggplot2::element_blank(),
+    axis.text.x = ggplot2::element_blank(),
+    axis.ticks.x = ggplot2::element_blank(),
+    panel.grid.major.x = ggplot2::element_blank(),
+    plot.margin = ggplot2::margin(t = 5.5, b = 0, l = 5.5, r = 5.5)
+  )
+}
+
+#' Attach Ideogram using Inset
+#'
+#' @param p ggplot object
+#' @param ideogram ggplot basic ideogram
+#' @param strip_height_cm Height of ideogram
+#' @param strip_margin_cm Margin gap between plot border and ideogram
+#' @param strip_title Logical: whether to strip the axis.title.x label
+#' @return ggplot object with inset attached
+#' @keywords internal
+attach_ideogram <- function(p, ideogram, strip_height_cm = 0.3, strip_margin_cm = 0.08, strip_title = TRUE) {
+  p_stripped <- p + ggplot2::theme(
+    axis.ticks.x = ggplot2::element_blank(),
+    panel.grid.major.x = ggplot2::element_blank(),
+    axis.text.x = ggplot2::element_text(margin = ggplot2::margin(t = 15)),
+    plot.margin = ggplot2::margin(t = 5.5, b = 0, l = 5.5, r = 5.5)
+  )
+  if (strip_title) {
+    p_stripped <- p_stripped + ggplot2::theme(axis.title.x = ggplot2::element_blank())
+  } else {
+    p_stripped <- p_stripped + ggplot2::theme(axis.title.x = ggplot2::element_text(margin = ggplot2::margin(t = 6)))
+  }
+  
+  p_stripped + patchwork::inset_element(
+    ideogram,
+    left = 0,
+    bottom = ggplot2::unit(-(strip_height_cm + strip_margin_cm), "cm"),
+    right = 1,
+    top = ggplot2::unit(-strip_margin_cm, "cm"),
+    align_to = "panel",
+    clip = FALSE,
+    ignore_tag = TRUE
+  )
+}
+
 #' Arrange and Save Final Plot
 #'
 #' @param plot_list List of ggplot objects
 #' @param use_snp Logical: whether SNP plots are included
 #' @param title Character: plot title
 #' @param output_file Character path or NULL
+#' @param chroms Optional chroms for ideogram
 #' @return ggplot object (invisibly if saved)
 #' @keywords internal
-arrange_and_save_plots <- function(plot_list, use_snp, title, output_file) {
+arrange_and_save_plots <- function(plot_list, use_snp, title, output_file, chroms = NULL) {
+  ideo <- NULL
+  if (!is.null(chroms)) {
+    ideo <- build_ideogram_strip(chroms)
+  }
+  
+  if (!is.null(ideo)) {
+    p_pos_raw <- attach_ideogram(plot_list$pos_rawdepth, ideo, strip_title = TRUE)
+    p_pos_log <- attach_ideogram(plot_list$pos_log2, ideo, strip_title = use_snp)
+  } else {
+    p_pos_raw <- plot_list$pos_rawdepth
+    p_pos_log <- plot_list$pos_log2
+  }
+
   if (use_snp) {
-    layout <- "AABBBBBB
-               CCDDDDDD
-               EEFFFFFF
-               GGHHHHHH"
-    fig <- plot_list$gc_rawdepth + plot_list$order_rawdepth +
-      plot_list$gc_log2 + plot_list$order_log2 +
-      plot_list$depth_alleleratio + plot_list$order_alleleratio +
+    if (!is.null(ideo)) {
+      p_pos_allele <- attach_ideogram(plot_list$pos_alleleratio, ideo, strip_title = FALSE)
+    } else {
+      p_pos_allele <- plot_list$pos_alleleratio
+    }
+  
+    layout <- "AABBBBBB\nCCDDDDDD\nEEFFFFFF\nGGHHHHHH"
+    fig <- plot_list$gc_rawdepth + p_pos_raw +
+      plot_list$gc_log2 + p_pos_log +
+      plot_list$depth_alleleratio + p_pos_allele +
       plot_list$nogrid + plot_list$grid +
       patchwork::plot_layout(design = layout, guides = "collect") &
-      theme(legend.position = "none")
+      ggplot2::theme(legend.position = "none")
   } else {
-    layout <- "ABBB
-               CDDD
-               EEEE"
-    fig <- plot_list$gc_rawdepth + plot_list$order_rawdepth +
-      plot_list$gc_log2 + plot_list$order_log2 +
-      plot_list$pos_log2 +
+    layout <- "AABBBBBB\nCCDDDDDD"
+    fig <- plot_list$gc_rawdepth + p_pos_raw +
+      plot_list$gc_log2 + p_pos_log +
       patchwork::plot_layout(design = layout, guides = "collect") &
-      theme(legend.position = "none")
+      ggplot2::theme(legend.position = "none")
   }
   
   # Add title
   pa <- patchwork::plot_annotation(
     title = title,
-    caption = paste("Jumble on", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+    theme = ggplot2::theme(plot.title = ggplot2::element_text(margin = ggplot2::margin(b = 25))),
+    caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
   )
   fig <- fig + pa
   
   # Save if specified
   if (!is.null(output_file)) {
-    png(file = output_file, width = 1600, height = 1300, res = 100)
+    png(file = output_file, width = 1600, height = ifelse(use_snp, 1300, 700), res = 100)
     suppressWarnings(print(fig))
     dev.off()
   }
@@ -1074,7 +1331,7 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
   annotate_targets(targets)
   theme_params <- setup_plot_theme()
   axis_params <- prepare_depth_axis()
-  yaxis_params <- prepare_yaxis_params(targets)
+  yaxis_params <- prepare_yaxis_params(targets, segments)
   
   # 2. Filter and prepare data
   chrom_levels <- c(as.character(1:22), "X", "Y")
@@ -1126,7 +1383,7 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
   p <- format_plot_legends(p)
   
   # 11. Arrange and save
-  arrange_and_save_plots(p, !is.null(snp_table), title, output_file)
+  arrange_and_save_plots(p, !is.null(snp_table), title, output_file, chroms = chroms)
 }
 
 #' Plot GIS Score
@@ -1261,7 +1518,11 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
     )
 
   # Save
-  suppressWarnings(ggsave(output_file, plot = final_plot, width = 16, height = 12, dpi = 300))
+  final_plot <- final_plot + plot_annotation(
+    caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
+    theme = theme(plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50"))
+  )
+  suppressWarnings(ggsave(output_file, plot = final_plot, width = 16, height = 7.2, dpi = 300))
 }
 
 
@@ -1311,7 +1572,7 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
 
   # Colors
   cat_colors <- c(
-    "Total indels"  = "grey50",
+    "Total indels"  = "#000000",
     "Mono repeats"  = "#E41A1C",
     "Di repeats"    = "#377EB8",
     "Tri repeats"   = "#4DAF4A"
@@ -1341,11 +1602,14 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
     ggplot2::coord_cartesian(ylim = c(0.5, y_max)) +
     ggplot2::scale_color_manual(values = cat_colors, drop = FALSE) +
     ggplot2::scale_linewidth_manual(
-      values = c("Total indels" = 0.8,
+      values = c("Total indels" = 2.0,
                  "Mono repeats" = 1, "Di repeats" = 1, "Tri repeats" = 1),
       drop = FALSE
     ) +
-    ggplot2::labs(title = title, color = NULL, linewidth = NULL) +
+    ggplot2::labs(
+      title = title, color = NULL, linewidth = NULL,
+      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+    ) +
     ggplot2::theme_bw() +
     ggplot2::theme(
       panel.grid.major = ggplot2::element_line(color = "grey90"),
@@ -1356,4 +1620,202 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
     ggplot2::guides(linewidth = "none")
 
   suppressWarnings(ggplot2::ggsave(output_file, plot = p, width = 10, height = 7, dpi = 300))
+}
+#' Plot TMB Estimate vs Minimum VAF Threshold
+#'
+#' @param somatic data.table with AF and variants mapping to valid bins.
+#' @param targets targets data.table.
+#' @param output_file Path to save the plot (PNG).
+#' @param title Plot title.
+#' @return NULL (saves file).
+#' @import ggplot2
+#' @keywords internal
+plot_tmb_vaf <- function(somatic, targets, output_file, title = "TMB VAF Analysis") {
+  if (is.null(somatic) || nrow(somatic) == 0) return(NULL)
+
+  # Mask poorly covered / background
+  valid_bin_indices <- which(targets$is_target == TRUE & targets$count > (0.2 * median(targets$count[targets$is_target == TRUE], na.rm = TRUE)) & targets$count > 50)
+  if (length(valid_bin_indices) == 0) return(NULL)
+  
+  target_mb <- sum(targets[valid_bin_indices, end - start], na.rm = TRUE) / 1e6
+  if (target_mb <= 0) return(NULL)
+
+  if ("is_rare_snp" %in% names(somatic)) {
+    tmb_pool <- somatic[!is.na(bin) & bin %in% valid_bin_indices & (is_rare_snp == FALSE | is.na(is_rare_snp))]
+  } else {
+    tmb_pool <- somatic[!is.na(bin) & bin %in% valid_bin_indices]
+  }
+  
+  if (nrow(tmb_pool) == 0) return(NULL)
+
+  tmb_pool[, is_indel := nchar(REF) != nchar(ALT)]
+  
+  vaf_thresholds <- seq(0.01, 0.50, by = 0.01)
+  
+  plot_data <- data.table::rbindlist(lapply(vaf_thresholds, function(vaf_min) {
+    sub <- tmb_pool[AF >= vaf_min]
+    tmb_snv <- sum(!sub$is_indel)
+    tmb_indel <- sum(sub$is_indel)
+    n_estim <- round(tmb_indel + (tmb_snv * 0.70))
+    est <- n_estim / target_mb
+    
+    data.table::data.table(
+      vaf_threshold = vaf_min,
+      category = c("Substitutions", "Indels", "TMB Estimate (/Mb)"),
+      value = c(tmb_snv, tmb_indel, est)
+    )
+  }))
+  
+  if (nrow(plot_data) == 0) return(NULL)
+  
+  cat_order <- c("Substitutions", "Indels", "TMB Estimate (/Mb)")
+  plot_data[, category := factor(category, levels = cat_order)]
+  
+  cat_colors <- c(
+    "Substitutions" = "#FF7F00",
+    "Indels"        = "#984EA3",
+    "TMB Estimate (/Mb)" = "#000000"
+  )
+  
+  y_max <- max(10, max(plot_data$value, na.rm = TRUE) * 1.1)
+  
+  plot_data[, plot_value := ifelse(value == 0, 0.5, value)]
+
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(
+    x = vaf_threshold, y = plot_value,
+    color = category, linewidth = category, linetype = category
+  )) +
+    ggplot2::geom_line() +
+    ggplot2::scale_x_continuous(
+      name = "Minimum VAF threshold",
+      breaks = seq(0, 0.5, by = 0.05),
+      labels = function(x) paste0(x * 100, "%"),
+      expand = c(0.01, 0.01)
+    ) +
+    ggplot2::scale_y_log10(
+      name = "Count / Score",
+      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
+    ) +
+    ggplot2::coord_cartesian(ylim = c(0.5, y_max)) +
+    ggplot2::scale_color_manual(values = cat_colors, drop = FALSE) +
+    ggplot2::scale_linewidth_manual(
+      values = c("Substitutions" = 1, "Indels" = 1, "TMB Estimate (/Mb)" = 2.0),
+      drop = FALSE
+    ) +
+    ggplot2::scale_linetype_manual(
+      values = c("Substitutions" = "solid", "Indels" = "solid", "TMB Estimate (/Mb)" = "solid"),
+      drop = FALSE
+    ) +
+    ggplot2::labs(
+      title = title, color = NULL, linewidth = NULL, linetype = NULL,
+      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.major = ggplot2::element_line(color = "grey90"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "bottom",
+      plot.title = ggplot2::element_text(size = 14, hjust = 0.5)
+    ) +
+    ggplot2::guides(linewidth = "none", linetype = "none")
+
+  # Add Subplot: Allele ratio vs Genomic position
+  chrom_levels <- c(as.character(1:22), "X", "Y")
+  targets_cp <- data.table::copy(targets[chromosome %in% chrom_levels])
+  chr_data <- prepare_chromosome_data(targets_cp, reference = NULL)
+  chroms <- chr_data$chroms
+  pos_data <- add_genomic_positions(targets_cp, data.table::data.table(), chroms)
+  targets_cp <- pos_data$targets
+  
+  cancergenes_summary <- prepare_cancergenes_summary(targets_cp)
+  theme_params <- setup_plot_theme()
+  
+  targets_cp[, plot_y := NA_real_]
+  if ("allele_ratio" %in% names(targets_cp)) {
+    targets_cp[, plot_y := allele_ratio]
+  } else if ("maf" %in% names(targets_cp)) {
+    targets_cp[, plot_y := ifelse(runif(.N) > 0.5, maf, 1 - maf)]
+  } else if ("local_snp_bg" %in% names(targets_cp)) {
+    targets_cp[, plot_y := ifelse(runif(.N) > 0.5, local_snp_bg, 1 - local_snp_bg)]
+  }
+  
+  somatic_plot <- NULL
+  if (!is.null(somatic) && nrow(somatic) > 0) {
+    somatic_plot <- data.table::copy(somatic[!is.na(bin)])
+    somatic_plot[, gpos := targets_cp$gpos[match(bin, targets_cp$bin)]]
+    somatic_plot[, is_ignored := FALSE]
+    if ("is_rare_snp" %in% names(somatic_plot)) {
+      somatic_plot[is_rare_snp == TRUE, is_ignored := TRUE]
+    }
+    is_indel <- nchar(somatic_plot$REF) != nchar(somatic_plot$ALT)
+    somatic_plot[, var_type := ifelse(!is_indel, "SNV", ifelse(nchar(REF) > nchar(ALT), "Deletion", "Insertion"))]
+  }
+  
+  p2 <- ggplot2::ggplot(targets_cp) +
+    ggplot2::xlab("Genomic position") +
+    ggplot2::ylab("Allele ratio") +
+    ggplot2::geom_vline(
+      data = cancergenes_summary,
+      mapping = ggplot2::aes(xintercept = gpos, color = selected_genes),
+      alpha = 0.5, linewidth = 0.5, show.legend = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = targets_cp[!is.na(label) & is.na(selected_genes) & !is.na(plot_y)],
+      mapping = ggplot2::aes(x = gpos, y = plot_y),
+      fill = "#606060", col = "#202020", shape = 21, 
+      size = theme_params$size, alpha = theme_params$alpha
+    ) +
+    ggplot2::geom_point(
+      data = targets_cp[!is.na(label) & !is.na(selected_genes) & !is.na(plot_y)],
+      mapping = ggplot2::aes(x = gpos, y = plot_y, fill = selected_genes),
+      col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8,
+      show.legend = FALSE
+    ) +
+    (if (!is.null(somatic_plot) && nrow(somatic_plot[is_ignored == FALSE]) > 0) {
+      ggplot2::geom_point(
+        data = somatic_plot[is_ignored == FALSE],
+        mapping = ggplot2::aes(x = gpos, y = AF, shape = var_type),
+        col = "red", fill = "red", size = 2.0, alpha = 0.8
+      )
+    }) +
+    (if (!is.null(somatic_plot) && nrow(somatic_plot[is_ignored == TRUE]) > 0) {
+      ggplot2::geom_point(
+        data = somatic_plot[is_ignored == TRUE],
+        mapping = ggplot2::aes(x = gpos, y = AF, shape = var_type),
+        col = "violet", fill = "violet", size = 2.0, alpha = 0.8
+      )
+    }) +
+    ggplot2::scale_shape_manual(
+      values = c("SNV" = 16, "Insertion" = 24, "Deletion" = 25),
+      drop = FALSE, guide = "none"
+    ) +
+    ggplot2::geom_text(
+      data = cancergenes_summary,
+      mapping = ggplot2::aes(x = gpos, y = Inf, label = selected_genes, color = selected_genes),
+      angle = 45, hjust = 0, size = 2.5, vjust = -0.5, show.legend = FALSE
+    ) +
+    ggplot2::scale_fill_hue(l = 70) +
+    ggplot2::scale_color_hue(l = 70) +
+    ggplot2::scale_x_continuous(
+      breaks = chroms$mid, minor_breaks = chroms$start[-1],
+      expand = c(.01, .01), labels = chroms$chromosome,
+      limits = c(0, sum(chroms$length))
+    ) +
+    ggplot2::scale_y_continuous(limits = c(0, 1), breaks = c(0, .25, .5, .75, 1)) +
+    ggplot2::coord_cartesian(clip = "off") +
+    ggplot2::theme(
+      panel.grid.major.x = ggplot2::element_blank(),
+      panel.grid.minor.y = ggplot2::element_line(),
+      panel.grid.minor.x = ggplot2::element_line(color = "black"),
+      axis.line = ggplot2::element_line(),
+      axis.ticks = ggplot2::element_line(),
+      plot.margin = ggplot2::unit(c(2, 0.5, 0.5, 0.5), "lines")
+    )
+
+  if (requireNamespace("patchwork", quietly = TRUE)) {
+    final_plot <- p / p2 + patchwork::plot_layout(heights = c(1, 1))
+    suppressWarnings(ggplot2::ggsave(output_file, plot = final_plot, width = 10, height = 12, dpi = 300))
+  } else {
+    suppressWarnings(ggplot2::ggsave(output_file, plot = p, width = 10, height = 7, dpi = 300))
+  }
 }

@@ -4,7 +4,7 @@
 \alias{arrange_and_save_plots}
 \title{Arrange and Save Final Plot}
 \usage{
-arrange_and_save_plots(plot_list, use_snp, title, output_file)
+arrange_and_save_plots(plot_list, use_snp, title, output_file, chroms = NULL)
 }
 \arguments{
 \item{plot_list}{List of ggplot objects}
@@ -14,6 +14,8 @@ arrange_and_save_plots(plot_list, use_snp, title, output_file)
 \item{title}{Character: plot title}
 
 \item{output_file}{Character path or NULL}
+
+\item{chroms}{Optional chroms for ideogram}
 }
 \value{
 ggplot object (invisibly if saved)

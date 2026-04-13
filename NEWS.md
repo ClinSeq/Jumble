@@ -1,4 +1,13 @@
+# Jumble 0.5.0
+
+*   **Y-Chromosome Artifact Sanitization**: Eliminated "double background bin" copy number artifacts caused by a bug in `generate_counts`. Existing `.counts.RDS` files are handled automatically and should not need to be regenerated.
+*   **TMB (Tumor Mutational Burden)**: Added TMB estimation to QC output when a somatic VCF is provided.
+    *   New QC columns: `TMB_snv`, `TMB_indel`, `TMB_score` (Poisson CI: e.g. `8.3 (6.1-11.0)` per Mb).
+    *   TMB is only computed over well-covered target bins (count ≥ 20% of median and ≥ 50 reads).
+
+
 # Jumble 0.4.1
+
 
 *   **MSI Classification**: Added microsatellite instability calling from somatic VCFs.
     *   New `classify_msi()` engine detects indels in mono-, di-, and trinucleotide repeat tracts.

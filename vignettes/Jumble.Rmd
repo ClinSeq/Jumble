@@ -74,7 +74,7 @@ target_bed <- "targets.bed"
 for (bam in bam_files) {
   generate_counts(
     bam_file = bam,
-    target_bed_file = target_bed,
+    target_bed = target_bed,
     output_dir = "counts_output"
   )
 }

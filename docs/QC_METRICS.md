@@ -43,13 +43,17 @@ Jumble generates a QC CSV file for each sample. The file always contains 18 colu
 | `MSI_mono` | Somatic VCF | Indels in mononucleotide repeat tracts |
 | `MSI_di` | Somatic VCF | Indels in dinucleotide repeat tracts |
 | `MSI_tri` | Somatic VCF | Indels in trinucleotide repeat tracts |
+| `TMB_snv` | Somatic VCF | Tumour Mutational Burden: somatic SNV count (footprint-masked) |
+| `TMB_indel` | Somatic VCF | Tumour Mutational Burden: somatic indel count (footprint-masked) |
+| `TMB_score` | Somatic VCF | TMB estimate per Mb with Poisson 95% CI (e.g. `8.3 (6.1-11.0)`) |
 
 ## Example Output
 
 ```csv
-sample,bam_file,reference_file,snp_vcf,somatic_vcf,median_target_count,gc_bias,noise,waviness,het_snps,hom_snps,sex,contamination,somatic_snvs,somatic_indels,MSI_mono,MSI_di,MSI_tri
-SampleA,sample.counts.RDS,reference.RDS,germline.vcf.gz,somatic.vcf,2140,2.7,0.29,0.13,4541,150,"female",,536,329,260,8,3
+sample,bam_file,reference_file,snp_vcf,somatic_vcf,median_target_count,gc_bias,noise,waviness,het_snps,hom_snps,sex,contamination,somatic_snvs,somatic_indels,MSI_mono,MSI_di,MSI_tri,TMB_snv,TMB_indel,TMB_score
+SampleA,sample.counts.RDS,reference.RDS,germline.vcf.gz,somatic.vcf,2140,2.7,0.29,0.13,4541,150,"female",,536,329,260,8,3,420,25,"8.3 (6.1-11.0)"
 ```
+
 
 ## Interpreting QC Metrics
 

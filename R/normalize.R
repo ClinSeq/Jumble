@@ -20,7 +20,8 @@ reconstruct_targets_from_reference <- function(reference) {
     targetlist[[i]] <- t
   }
   
-  data.table::rbindlist(targetlist)
+  if (length(targetlist) == 0) return(data.table::data.table())
+  data.table::rbindlist(targetlist, fill = TRUE)
 }
 
 #' Apply Value Floor
@@ -44,15 +45,33 @@ apply_value_floor <- function(x) {
 #' @return Filtered targets
 #' @keywords internal
 filter_bins_by_coverage <- function(targets) {
+  if (!"count" %in% names(targets)) return(targets)
+  
+  # Determine which bins to use for threshold calculation
+  # Use is_target if available, otherwise use all bins
+  use_idx <- if ("is_target" %in% names(targets)) which(targets$is_target == TRUE) else seq_len(nrow(targets))
+  
+  if (length(use_idx) == 0) return(targets)
+
   # Low coverage threshold
-  threshold_low <- median(targets[is_target == TRUE]$count) * 0.01
-  keep_bins_low <- targets[, median(count), by = bin][V1 > threshold_low]$bin
-  targets <- targets[bin %in% keep_bins_low]
+  threshold_low <- median(targets[use_idx]$count, na.rm = TRUE) * 0.01
+  
+  if (is.finite(threshold_low)) {
+    keep_bins_low <- targets[, .(m = median(count, na.rm = TRUE)), by = bin][m > threshold_low]$bin
+    targets <- targets[bin %in% keep_bins_low]
+  }
   
   # High coverage threshold
-  threshold_high <- median(targets[is_target == TRUE]$count) / 0.05
-  keep_bins_high <- targets[, median(count), by = bin][V1 < threshold_high]$bin
-  targets <- targets[bin %in% keep_bins_high]
+  # Re-calculate indices after filtration
+  use_idx <- if ("is_target" %in% names(targets)) which(targets$is_target == TRUE) else seq_len(nrow(targets))
+  if (length(use_idx) == 0) return(targets)
+  
+  threshold_high <- median(targets[use_idx]$count, na.rm = TRUE) / 0.05
+  
+  if (is.finite(threshold_high)) {
+    keep_bins_high <- targets[, .(m = median(count, na.rm = TRUE)), by = bin][m < threshold_high]$bin
+    targets <- targets[bin %in% keep_bins_high]
+  }
   
   targets
 }
@@ -580,7 +599,9 @@ cleanup_temp_columns <- function(targets, cols_to_remove) {
 compute_reference_pca <- function(reference) {
   # 1. Reconstruct and define backbone
   targets <- reconstruct_targets_from_reference(reference)
-  targets[, chromosome := clean_chrom_names(chromosome)]
+  if ("chromosome" %in% names(targets)) {
+    targets[, chromosome := clean_chrom_names(chromosome)]
+  }
   targets <- define_backbone(targets)
   
   # 2. Filter bins by coverage
