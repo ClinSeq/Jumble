@@ -125,8 +125,9 @@ load_target_bed <- function(target_bed) {
   setnames(bed, 1:3, c("chromosome", "start", "end"))
   
   # Add IDs and normalize chromosome names
+  bed_name <- if (ncol(bed) >= 4) as.character(bed[[4]]) else rep("", nrow(bed))
   bed_out <- cbind(
-    data.table(target = 1:nrow(bed)),
+    data.table(target = 1:nrow(bed), bed_name = bed_name),
     bed[, .(chromosome, start, end)]
   )
   bed_out[, chromosome := str_remove(as.character(chromosome), "^chr")]

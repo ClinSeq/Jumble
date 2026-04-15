@@ -169,12 +169,12 @@ compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, 
     # Long median (smoothed per chromosome, k=5 -> 25MB)
     bins_final[, long_median := safe_runmed(log2, k = 5), by = chromosome]
 
-    # Compute GIS for each fraction
     results_list <- lapply(fractions, function(f) {
         comp_gis_for_fraction(bins_final, f)
     })
 
     results_dt <- rbindlist(results_list)
+    attr(results_dt, "bins_final") <- bins_final
 
     return(results_dt)
 }
