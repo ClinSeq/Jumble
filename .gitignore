@@ -30,6 +30,7 @@
 # Internal Development
 local_dev/
 .cursorrules
+AGENTS.md
 
 # Editor
 .vscode/
