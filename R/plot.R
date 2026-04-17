@@ -946,10 +946,10 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
 #' @keywords internal
 plot_gis <- function(gis_table) {
   if (!is.null(gis_table)) {
-    ggplot2::ggplot() +
+    p <- ggplot2::ggplot() +
       ggplot2::geom_line(
         data = gis_table, 
-        aes(x = fraction, y = predicted_gis, group = 1), 
+        aes(x = fraction, y = predicted_gis, col = "predicted_gis", group = 1), 
         linewidth = 2
       ) +
       ggplot2::geom_line(
@@ -966,6 +966,22 @@ plot_gis <- function(gis_table) {
         data = gis_table, 
         aes(x = fraction, y = loh * 10, col = "loh"), 
         lty = 1, linewidth = 1
+      )
+      
+    if ("custom_HRD" %in% names(gis_table) && any(!is.na(gis_table$custom_HRD))) {
+      p <- p + ggplot2::geom_line(
+        data = gis_table,
+        aes(x = fraction, y = custom_HRD, col = "custom_HRD"),
+        linetype = 2,
+        linewidth = 1.5
+      )
+    }
+    
+    p <- p + ggplot2::scale_color_manual(
+        name = "Feature (x10)",
+        values = c("predicted_gis" = "black", "local_cnv" = "#F8766D", "focal_gain" = "#00BA38", "loh" = "#619CFF", "custom_HRD" = "#8B0000"),
+        breaks = c("predicted_gis", "local_cnv", "focal_gain", "loh", "custom_HRD"),
+        labels = c("predicted_gis" = "GIS score", "local_cnv" = "local_cnv", "focal_gain" = "focal_gain", "loh" = "loh", "Custom HRD")
       ) +
       scale_x_continuous(
         name = "Tumor DNA fraction",
@@ -978,8 +994,9 @@ plot_gis <- function(gis_table) {
         sec.axis = sec_axis(~., breaks = seq(0, 100, 10))
       ) +
       ggplot2::geom_hline(yintercept = 42, lty = 2, col = "#00000050", linewidth = 2) +
-      labs(color = "Feature (x10)") +
       theme(legend.position = "bottom")
+    
+    return(p)
   } else {
     ggplot2::ggplot() +
       ggplot2::geom_text(aes(x = 0.5, y = 0.5, label = "No GIS Data")) +
@@ -1162,10 +1179,16 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
         loh = as.numeric(loh),
         fraction = as.numeric(fraction)
       )]
+      measure_vars <- c("predicted_gis", "local_cnv", "focal_gain", "loh")
+      has_custom <- "custom_HRD" %in% names(gis_table) && any(!is.na(gis_table$custom_HRD))
+      if (has_custom) {
+        measure_vars <- c(measure_vars, "custom_HRD")
+      }
+      
       plot_data <- data.table::melt(
         gis_table,
         id.vars = "fraction",
-        measure.vars = c("predicted_gis", "local_cnv", "focal_gain", "loh"),
+        measure.vars = measure_vars,
         variable.name = "feature",
         value.name = "value"
       )
@@ -1229,10 +1252,25 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
   # If estimated fraction exists in metadata, use it? For now assume it's just the table data.
 
   p2 <- ggplot() +
-    geom_line(data = plot_data[feature == "predicted_gis"], aes(x = fraction, y = value), linewidth = 2) +
+    geom_line(data = plot_data[feature == "predicted_gis"], aes(x = fraction, y = value, col = "predicted_gis"), linewidth = 2) +
     geom_line(
       data = plot_data[feature %in% c("local_cnv", "focal_gain", "loh")],
       aes(x = fraction, y = value, col = feature), linetype = 1, linewidth = 1
+    )
+    
+  if ("custom_HRD" %in% plot_data$feature) {
+    p2 <- p2 + geom_line(
+      data = plot_data[feature == "custom_HRD"],
+      aes(x = fraction, y = value, col = "custom_HRD"),
+      linetype = 2, linewidth = 1.5
+    )
+  }
+  
+  p2 <- p2 + scale_color_manual(
+      name = NULL,
+      values = c("predicted_gis" = "black", "local_cnv" = "#F8766D", "focal_gain" = "#00BA38", "loh" = "#619CFF", "custom_HRD" = "#8B0000"),
+      breaks = c("predicted_gis", "local_cnv", "focal_gain", "loh", "custom_HRD"),
+      labels = c("predicted_gis" = "GIS score", "local_cnv" = "local_cnv", "focal_gain" = "focal_gain", "loh" = "loh", "custom_HRD" = "Custom HRD")
     ) +
     scale_x_continuous(
       name = "Tumor DNA fraction",

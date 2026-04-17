@@ -36,13 +36,14 @@ gis_model <- function(feats = NULL) {
 #' @param snps Data.table of SNPs (must have chromosome, start, end, allele_ratio).
 #' @param fractions Vector of purity fractions to test (default: 0.01 to 1.00 by 0.01).
 #' @param genome Genome version ("hg19" or "hg38"). Default "hg19".
+#' @param hrd_model Optional HRD model.
 #' @return Data.table with fraction, predicted_gis, and feature counts.
 #' @importFrom data.table data.table copy as.data.table setnames := rbindlist
 #' @importFrom GenomicRanges makeGRangesFromDataFrame findOverlaps
 #' @importFrom stats median quantile runmed
 #' @importFrom stringr str_detect
 #' @keywords internal
-compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, by = 0.01), genome = "hg19") {
+compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, by = 0.01), genome = "hg19", hrd_model = NULL) {
     # 1. 1MB Binning of Targets ----------------------------------------------
     # parsing targets
     targets_sub <- targets[chromosome %in% c(1:22, "X", "Y") & !is.na(log2)]
@@ -170,7 +171,7 @@ compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, 
     bins_final[, long_median := safe_runmed(log2, k = 5), by = chromosome]
 
     results_list <- lapply(fractions, function(f) {
-        comp_gis_for_fraction(bins_final, f)
+        comp_gis_for_fraction(bins_final, f, hrd_model = hrd_model)
     })
 
     results_dt <- rbindlist(results_list)
@@ -241,7 +242,7 @@ get_chrom_arms <- function(genome = "hg19") {
 
 #' Helper to compute GIS for a single fraction
 #' @keywords internal
-comp_gis_for_fraction <- function(bins_in, tfr) {
+comp_gis_for_fraction <- function(bins_in, tfr, hrd_model = NULL) {
     # Work on a copy
     bins <- copy(bins_in)
 
@@ -337,6 +338,11 @@ comp_gis_for_fraction <- function(bins_in, tfr) {
     # 5. Predict GIS ---------------------------------------------------------
     res$predicted_gis <- round(gis_model(res))
 
+    custom_score <- apply_hrd_model(hrd_model, res)
+    if (!is.null(custom_score)) {
+        res$custom_HRD <- custom_score
+    }
+
     return(res)
 }
 
@@ -347,4 +353,65 @@ safe_runmed <- function(x, k) {
         return(median(x, na.rm = TRUE))
     }
     stats::runmed(x, k)
+}
+
+#' Apply Custom HRD Model
+#'
+#' Applies a user-supplied HRD model to the GIS feature set for a single
+#' fraction. The model receives a data frame with all 9 standard GIS
+#' features and selects its own columns by name.
+#'
+#' For regression models the raw numeric prediction is returned.
+#' For classification models the positive-class probability × 100 is returned.
+#'
+#' @param model Model object, function, or NULL.
+#' @param feats List of feature values from comp_gis_for_fraction.
+#' @return Numeric score, or NULL if no model supplied.
+#' @keywords internal
+apply_hrd_model <- function(model, feats) {
+    if (is.null(model)) return(NULL)
+
+    # Check randomForest availability when model requires it
+    if (inherits(model, "randomForest") &&
+        !require("randomForest", character.only = TRUE, quietly = TRUE)) {
+        stop("Package 'randomForest' is required to use the supplied hrd_model. ",
+             "Install it with: install.packages('randomForest')")
+    }
+
+    # Build full feature data frame — model picks its columns by name
+    feats_df <- as.data.frame(feats[c(
+        "focal_gain", "focal_loss", "local_cnv",
+        "local_gain", "local_loss", "loh",
+        "transitions", "long_cnv", "tai"
+    )], check.names = FALSE)
+
+    # Plain function interface
+    if (is.function(model)) {
+        return(as.numeric(model(feats_df)))
+    }
+
+    # Try classification interface (type = "prob")
+    pred <- tryCatch(
+        predict(model, newdata = feats_df, type = "prob"),
+        error = function(e) NULL
+    )
+
+    if (!is.null(pred) && (is.data.frame(pred) || is.matrix(pred))) {
+        col_names <- colnames(pred)
+        priority  <- c("GIS", "HRD", "Pos", "1")
+        match_idx <- which(toupper(col_names) %in% toupper(priority))
+
+        if (length(match_idx) > 0) {
+            best <- match_idx[which.min(match(
+                toupper(col_names[match_idx]), toupper(priority)
+            ))]
+            prob_col <- as.numeric(pred[, best])
+        } else {
+            prob_col <- as.numeric(pred[, min(2, ncol(pred))])
+        }
+        return(prob_col * 100)
+    }
+
+    # Regression fallback
+    as.numeric(predict(model, newdata = feats_df))
 }

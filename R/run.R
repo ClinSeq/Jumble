@@ -345,9 +345,10 @@ perform_segmentation <- function(targets, reference, alltargets) {
 #' @param targets Targets data.table
 #' @param snp_table SNP data.table
 #' @param reference Reference object
+#' @param hrd_model Optional HRD model
 #' @return List with gis_table and updated targets
 #' @keywords internal
-compute_gis_and_maf <- function(targets, snp_table, reference) {
+compute_gis_and_maf <- function(targets, snp_table, reference, hrd_model = NULL) {
   if (is.null(snp_table)) {
     targets[, maf := as.numeric(NA)]
     targets[, long_median := as.numeric(NA)]
@@ -357,7 +358,7 @@ compute_gis_and_maf <- function(targets, snp_table, reference) {
   
   message("Computing GIS...")
   genome_version <- if (!is.null(reference$genome)) reference$genome else "hg19"
-  gis_table <- compute_gis_table(targets, snp_table, genome = genome_version)
+  gis_table <- compute_gis_table(targets, snp_table, genome = genome_version, hrd_model = hrd_model)
   
   # Map long_median from 5MB background segments to targets
   bins_final <- attr(gis_table, "bins_final")
@@ -668,6 +669,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 #' @param cores Number of cores (currently unused).
 #' @param genome Genome version.
 #' @param correction String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).
+#' @param hrd_model_file Optional path to a custom HRD model object (e.g. randomForest, glm, or function) saved as an RDS file. When supplied, a supplementary Custom HRD score is added to GIS output.
 #' @param ... Additional arguments.
 #' @return A list containing results (targets, segments, etc.).
 #' @importFrom data.table fread fwrite
@@ -675,8 +677,17 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 #' @export
 run_jumble <- function(bam_file, reference_file, output_dir = ".",
                        snp_vcf = NULL, somatic_vcf = NULL, cores = 1, 
-                       genome = NULL, correction = "optim", ...) {
+                       genome = NULL, correction = "optim", hrd_model_file = NULL, ...) {
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  
+  hrd_model <- NULL
+  if (!is.null(hrd_model_file)) {
+    if (file.exists(hrd_model_file)) {
+      hrd_model <- readRDS(hrd_model_file)
+    } else {
+      warning("Provided hrd_model_file does not exist. Ignoring custom HRD model.")
+    }
+  }
   
   # 1. Load Reference
   reference <- load_reference_data(reference_file)
@@ -735,7 +746,7 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   sample_name <- sub("\\.bam$", "", sample_name, ignore.case = TRUE)
   
   # 9. Compute GIS
-  gis_result <- compute_gis_and_maf(targets, snp_table, reference)
+  gis_result <- compute_gis_and_maf(targets, snp_table, reference, hrd_model = hrd_model)
   gis_table <- gis_result$gis_table
   targets <- gis_result$targets
   

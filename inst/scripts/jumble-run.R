@@ -19,9 +19,17 @@ option_list <- list(
         type = "character", default = NULL,
         help = "VCF file for SNP analysis (optional)", metavar = "FILE"
     ),
+    make_option(c("-s", "--somatic"),
+        type = "character", default = NULL,
+        help = "Somatic VCF file for MSI analysis (optional)", metavar = "FILE"
+    ),
     make_option(c("-o", "--output"),
         type = "character", default = NULL,
         help = "Output directory [default: current directory]", metavar = "DIR"
+    ),
+    make_option(c("-m", "--model"),
+        type = "character", default = NULL,
+        help = "HRD model file for GIS Custom HRD scoring (optional)", metavar = "FILE"
     ),
     make_option(c("-a", "--alpha"),
         type = "double", default = 0.001,
@@ -62,6 +70,14 @@ if (!is.null(opt$vcf) && !file.exists(opt$vcf)) {
     stop("VCF file not found: ", opt$vcf)
 }
 
+if (!is.null(opt$somatic) && !file.exists(opt$somatic)) {
+    stop("Somatic VCF file not found: ", opt$somatic)
+}
+
+if (!is.null(opt$model) && !file.exists(opt$model)) {
+    warning("HRD Model file not found: ", opt$model)
+}
+
 # Set output directory
 output_dir <- if (!is.null(opt$output)) opt$output else getwd()
 if (!dir.exists(output_dir)) {
@@ -75,6 +91,12 @@ cat("Input:", opt$bam, "\n")
 if (!is.null(opt$vcf)) {
     cat("VCF:", opt$vcf, "\n")
 }
+if (!is.null(opt$somatic)) {
+    cat("Somatic VCF:", opt$somatic, "\n")
+}
+if (!is.null(opt$model)) {
+    cat("Model:", opt$model, "\n")
+}
 cat("Output:", output_dir, "\n")
 cat("Alpha:", opt$alpha, "\n")
 cat("Correction:", opt$correction, "\n\n")
@@ -85,8 +107,10 @@ result <- run_jumble(
     reference_file = opt$reference,
     output_dir = output_dir,
     snp_vcf = opt$vcf,
+    somatic_vcf = opt$somatic,
     alpha = opt$alpha,
-    correction = opt$correction
+    correction = opt$correction,
+    hrd_model_file = opt$model
 )
 
 cat("\n✓ Analysis complete\n")
