@@ -13,6 +13,7 @@ run_jumble(
   cores = 1,
   genome = NULL,
   correction = "optim",
+  hrd_model_file = NULL,
   ...
 )
 }
@@ -32,6 +33,8 @@ run_jumble(
 \item{genome}{Genome version.}
 
 \item{correction}{String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).}
+
+\item{hrd_model_file}{Optional path to a custom HRD model object (e.g. randomForest, glm, or function) saved as an RDS file. When supplied, a supplementary Custom HRD score is added to GIS output.}
 
 \item{...}{Additional arguments.}
 }

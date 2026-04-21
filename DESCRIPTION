@@ -1,7 +1,7 @@
 Package: Jumble
 Type: Package
 Title: Copy Number Analysis of Short Read Sequencing Data
-Version: 0.4.1
+Version: 0.5.1
 Authors@R: c(
     person("Markus", "Mayrhofer", email = "markus.mayrhofer@ki.se", role = c("aut", "cre")),
     person("Johan", "Lindberg", role = "aut"),

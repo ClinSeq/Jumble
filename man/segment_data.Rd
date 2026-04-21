@@ -4,16 +4,23 @@
 \alias{segment_data}
 \title{Segment Data}
 \usage{
-segment_data(targets, alpha = NULL, cancergenes = NULL, cancerexons = NULL)
+segment_data(
+  targets,
+  alpha = NULL,
+  cancergenes = NULL,
+  cancerexons = NULL,
+  allgenes = NULL,
+  cytobands = NULL
+)
 }
 \arguments{
 \item{targets}{Normalized targets data.table.}
 
 \item{alpha}{Significance level for segmentation (default: 0.02, or 1e-5 for WGS).}
 
-\item{cancergenes}{Optional data.table of cancer genes for annotation.}
+\item{allgenes}{Optional data.table of all genes for annotation.}
 
-\item{cancerexons}{Optional data.table of cancer exons for annotation.}
+\item{cytobands}{Optional data.table of cytobands.}
 }
 \value{
 A list containing the segment table and the updated targets with segment IDs.

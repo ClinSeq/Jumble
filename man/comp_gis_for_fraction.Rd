@@ -4,7 +4,7 @@
 \alias{comp_gis_for_fraction}
 \title{Helper to compute GIS for a single fraction}
 \usage{
-comp_gis_for_fraction(bins_in, tfr)
+comp_gis_for_fraction(bins_in, tfr, hrd_model = NULL)
 }
 \description{
 Helper to compute GIS for a single fraction

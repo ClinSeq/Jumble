@@ -4,7 +4,7 @@
 \alias{compute_gis_and_maf}
 \title{Compute GIS and Add MAF to Targets}
 \usage{
-compute_gis_and_maf(targets, snp_table, reference)
+compute_gis_and_maf(targets, snp_table, reference, hrd_model = NULL)
 }
 \arguments{
 \item{targets}{Targets data.table}
@@ -12,6 +12,8 @@ compute_gis_and_maf(targets, snp_table, reference)
 \item{snp_table}{SNP data.table}
 
 \item{reference}{Reference object}
+
+\item{hrd_model}{Optional HRD model}
 }
 \value{
 List with gis_table and updated targets

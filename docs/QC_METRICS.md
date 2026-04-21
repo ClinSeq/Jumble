@@ -8,50 +8,54 @@ Jumble automatically generates quality control (QC) metrics for each sample anal
 **Filename**: `<sample_name>.qc.csv`  
 **Format**: CSV with header row and one data row per sample
 
-## QC Metrics
+## QC Metrics (18 columns)
 
-### Input Files
-- **sample**: Sample name
-- **bam_file**: Input BAM or counts file (basename)
-- **reference_file**: Reference file used (basename)
-- **vcf_file**: VCF file if provided (basename), otherwise NA
+| # | Column | Description |
+|---|--------|-------------|
+| 1 | `sample` | Sample name |
+| 2 | `bam_file` | Input BAM or counts file (basename) |
+| 3 | `reference_file` | Reference file used (basename) |
+| 4 | `snp_vcf` | SNP VCF file if provided (basename), otherwise NA |
+| 5 | `somatic_vcf` | Somatic VCF file if provided (basename), otherwise NA |
+| 6 | `median_target_count` | Median fragment count across target bins |
+| 7 | `gc_bias` | Log2 ratio of high-GC to low-GC bin counts (see below) |
+| 8 | `noise` | Normalized noise metric (MAD of log2 ratios) |
+| 9 | `waviness` | Large-scale systematic bias metric |
+| 10 | `het_snps` | Number of heterozygous SNPs detected |
+| 11 | `hom_snps` | Number of homozygous SNPs detected |
+| 12 | `sex` | Inferred sex (M/F) from chrX heterozygosity |
+| 13 | `contamination` | Estimated sample contamination level |
+| 14 | `somatic_snvs` | Number of somatic SNVs (from somatic VCF) |
+| 15 | `somatic_indels` | Number of somatic indels (from somatic VCF) |
+| 16 | `MSI_mono` | Count of MSI-like indels in mononucleotide repeats |
+| 17 | `MSI_di` | Count of MSI-like indels in dinucleotide repeats |
+| 18 | `MSI_tri` | Count of MSI-like indels in trinucleotide repeats |
 
-### Fragment Count Metrics
-- **median_target_count**: Median fragment count across target bins
-- **mean_target_count**: Mean fragment count across target bins
-- **total_bins**: Total number of bins
-- **target_bins**: Number of target bins
-- **background_bins**: Number of background bins (gene panel only)
+Columns 4–5 and 10–18 are `NA` when the corresponding VCF input is not provided.
 
 ### GC Content Bias
-- **gc_bias**: Log2 ratio of high-GC to low-GC bin counts
-  - Formula: `log2(mean_high_gc_count / mean_low_gc_count)`
-  - High-GC: bins with GC content 0.5-0.6
-  - Low-GC: bins with GC content 0.3-0.4
+- **gc_bias**: `log2(mean_high_gc_count / mean_low_gc_count)`
+  - High-GC: bins with GC content 0.5–0.6
+  - Low-GC: bins with GC content 0.3–0.4
   - Interpretation:
     - **0**: No GC bias (ideal)
     - **Positive**: High-GC bins have more fragments
     - **Negative**: Low-GC bins have more fragments
     - **Typical range**: -0.5 to +0.5
 
-- **n_low_gc_bins**: Number of bins in low-GC range (0.3-0.4)
-- **n_high_gc_bins**: Number of bins in high-GC range (0.5-0.6)
-- **mean_low_gc_count**: Mean fragment count in low-GC bins
-- **mean_high_gc_count**: Mean fragment count in high-GC bins
-
 ## Example Output
 
 ```csv
-sample,bam_file,reference_file,vcf_file,median_target_count,gc_bias,n_low_gc_bins,n_high_gc_bins,mean_low_gc_count,mean_high_gc_count,total_bins,target_bins,background_bins,mean_target_count
-BM-P-HRD01,sample.counts.RDS,reference.RDS,sample.vcf.gz,1947,0.2415,6812,2854,1920.21,2270.16,21781,18853,2928,2069.12
+"sample","bam_file","reference_file","snp_vcf","somatic_vcf","median_target_count","gc_bias","noise","waviness","het_snps","hom_snps","sex","contamination","somatic_snvs","somatic_indels","MSI_mono","MSI_di","MSI_tri"
+"SampleA","sample.counts.RDS","reference.RDS","sample.vcf.gz",NA,1947,0.24,0.31,0.08,4356,2102,"F",0.01,NA,NA,NA,NA,NA
 ```
 
 ## Interpreting QC Metrics
 
 ### Fragment Count
 - **Median target count**: Typical coverage depth
-  - Gene panel: 500-5000 fragments/bin typical
-  - WGS: 10-100 fragments/bin typical
+  - Gene panel: 500–5000 fragments/bin typical
+  - WGS: 10–100 fragments/bin typical
   - Low values may indicate poor sequencing quality
 
 ### GC Bias
@@ -61,13 +65,15 @@ BM-P-HRD01,sample.counts.RDS,reference.RDS,sample.vcf.gz,1947,0.2415,6812,2854,1
 - **Causes**: PCR amplification bias, library preparation issues
 - **Impact**: May affect copy number calling accuracy
 
-### Bin Counts
-- **Target bins**: Should match expected panel size
-- **Background bins**: Gene panel only (off-target regions)
-- Unexpected values may indicate:
-  - Wrong reference file
-  - BED file mismatch
-  - Data processing errors
+### Sex Inference
+- Inferred from chrX heterozygosity vs autosomal rate
+- Pseudoautosomal regions are excluded from the calculation
+- Useful for detecting sample swaps
+
+### MSI Metrics
+- Based on indel classification in repeat tracts from the somatic VCF
+- `MSI_mono`, `MSI_di`, `MSI_tri` count MSI-like indels by repeat type
+- High `MSI_mono` counts are indicative of microsatellite instability
 
 ## Using QC Metrics
 
@@ -102,17 +108,6 @@ library(ggplot2)
 ggplot(qc_data, aes(x = median_target_count, y = gc_bias)) +
     geom_point() +
     labs(title = "QC Metrics Overview")
-```
-
-### Pipeline Integration
-```bash
-# Extract QC metrics for all samples
-for qc in *.qc.csv; do
-    sample=$(basename $qc .qc.csv)
-    gc_bias=$(awk -F',' 'NR==2 {print $6}' $qc)
-    coverage=$(awk -F',' 'NR==2 {print $5}' $qc)
-    echo "$sample,$gc_bias,$coverage"
-done > qc_summary.csv
 ```
 
 ## QC Thresholds (Suggested)
