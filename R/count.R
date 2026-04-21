@@ -208,6 +208,7 @@ create_background_bins <- function(raw_targets, chromlength) {
   seqlengths(gr_base) <- chromlength
   
   gr_bg <- gaps(gr_base)
+  gr_bg <- gr_bg[GenomicRanges::strand(gr_bg) == "*"]
   
   # 4. Filter and Resize
   gr_bg <- gr_bg[width(gr_bg) > bg_minsize]

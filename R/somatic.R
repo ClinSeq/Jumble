@@ -88,11 +88,46 @@ parse_vep_csq <- function(vcf, keep_mask) {
   csq_desc <- if ("CSQ" %in% rownames(vcf_header_info)) vcf_header_info$Description[rownames(vcf_header_info) == "CSQ"] else character(0)
   
   n_rows <- sum(keep_mask)
-  cols <- c("SYMBOL", "Consequence", "Protein_position", "CANONICAL", "IMPACT", "CLIN_SIG", "Amino_acids")
+  cols <- c("SYMBOL", "Consequence", "Protein_position", "CANONICAL", "IMPACT", "CLIN_SIG", "Amino_acids", "MAX_AF")
   res <- data.table::data.table(matrix(NA_character_, nrow = n_rows, ncol = length(cols)))
   names(res) <- cols
   
-  if (length(csq_desc) == 0 || n_rows == 0) return(res)
+  if (length(csq_desc) == 0 || n_rows == 0) {
+    # Fallback: try INFO/GENE and INFO/EFFECT when VEP CSQ is absent
+    if (n_rows > 0) {
+      info_data <- VariantAnnotation::info(vcf)
+      if ("GENE" %in% names(info_data)) {
+        res$SYMBOL <- as.character(info_data$GENE[keep_mask])
+      }
+      if ("EFFECT" %in% names(info_data)) {
+        effects <- as.character(info_data$EFFECT[keep_mask])
+        # Parse "Missense_p.G245S" -> Consequence + Amino_acids + Protein_position
+        parts <- strsplit(effects, "_p\\.")
+        res$Consequence <- vapply(parts, function(x) {
+          ct <- x[1]
+          ct <- gsub("Missense", "missense_variant", ct)
+          ct <- gsub("Frameshift", "frameshift_variant", ct)
+          ct <- gsub("Nonsense", "stop_gained", ct)
+          ct <- gsub("Splice", "splice_region_variant", ct)
+          ct <- gsub("Synonymous", "synonymous_variant", ct)
+          ct
+        }, character(1))
+        res$IMPACT <- ifelse(grepl("frameshift|stop_gained", res$Consequence), "HIGH",
+                      ifelse(grepl("missense", res$Consequence), "MODERATE",
+                      ifelse(grepl("splice", res$Consequence), "LOW", "MODIFIER")))
+        res$CANONICAL <- "YES"
+        # Extract amino acids and protein position
+        pchanges <- vapply(parts, function(x) if (length(x) >= 2) x[2] else "", character(1))
+        aa_matches <- regmatches(pchanges, regexec("^([A-Z*])(\\d+)(.*)", pchanges))
+        res$Protein_position <- vapply(aa_matches, function(m) if (length(m) == 4) m[3] else "", character(1))
+        res$Amino_acids <- vapply(aa_matches, function(m) if (length(m) == 4) paste0(m[2], "/", m[4]) else "", character(1))
+      }
+      if ("CLINVAR" %in% names(info_data)) {
+        res$CLIN_SIG <- as.character(info_data$CLINVAR[keep_mask])
+      }
+    }
+    return(res)
+  }
   
   csq_format <- sub(".*Format: ", "", csq_desc)
   csq_fields <- strsplit(csq_format, "\\|")[[1]]
@@ -273,8 +308,18 @@ map_variants_to_bins <- function(somatic, reference) {
       seqnames = somatic$chromosome,
       ranges = IRanges::IRanges(start = somatic$start, end = somatic$end)
     )
-    ol <- GenomicRanges::findOverlaps(reference$ranges, som_gr)
-    
+
+    # Harmonise chromosome naming to match somatic (bare names, no "chr" prefix)
+    ref_gr <- reference$ranges
+    ref_chroms <- as.character(GenomeInfoDb::seqnames(ref_gr))
+    if (any(grepl("^chr", ref_chroms))) {
+      GenomeInfoDb::seqlevelsStyle(ref_gr) <- "NCBI"
+    }
+
+    ol <- suppressWarnings(
+      GenomicRanges::findOverlaps(ref_gr, som_gr)
+    )
+
     somatic[, bin := NA_integer_]
     somatic[S4Vectors::subjectHits(ol), bin := S4Vectors::queryHits(ol)]
   } else {
@@ -329,6 +374,13 @@ process_somatic_vcf <- function(vcf_file, reference, genome = "hg19") {
   # 3. Parse VEP Annotations for Kept Rows
   csq_dt <- parse_vep_csq(vcf, keep_mask)
   somatic <- cbind(somatic, csq_dt)
+
+  # 3.5 Aggressive Population Frequency Extirpation
+  if ("MAX_AF" %in% names(somatic)) {
+    pop_af <- suppressWarnings(as.numeric(somatic$MAX_AF))
+    pop_af[is.na(pop_af)] <- 0
+    somatic <- somatic[pop_af == 0]
+  }
 
   # 4. Annotate Hotspots
   somatic <- annotate_hotspots(somatic, genome)

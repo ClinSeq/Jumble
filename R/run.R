@@ -24,6 +24,7 @@ load_or_generate_counts <- function(bam_file, reference, output_dir) {
   # Check if input is pre-computed counts
   if (grepl("\\.RDS$", bam_file, ignore.case = TRUE)) {
     counts <- readRDS(bam_file)
+    counts <- sanitize_legacy_counts(counts)
     counts <- reorder_counts_to_reference(counts, reference)
   } else {
     counts <- generate_counts_from_bam(bam_file, reference, output_dir)
@@ -398,6 +399,81 @@ compute_gis_and_maf <- function(targets, snp_table, reference, hrd_model = NULL)
   targets[, maf := as.numeric(NA)]
   targets[S4Vectors::subjectHits(hits), maf := snps_sub[S4Vectors::queryHits(hits)]$maf]
   
+  # Compute local_snp_bg for somatic rare SNP filtering
+  # 1. Smooth within segment
+  targets[, local_snp_bg := as.numeric(NA)]
+  
+  safe_runmed <- function(x) {
+    valid <- !is.na(x)
+    n <- sum(valid)
+    if (n == 0) return(x)
+    if (n <= 2) {
+      x[valid] <- median(x[valid])
+      return(x)
+    }
+    k <- min(9, n)
+    if (k %% 2 == 0) k <- k - 1
+    x[valid] <- stats::runmed(x[valid], k)
+    return(x)
+  }
+  
+  targets[, local_snp_bg := safe_runmed(maf), by = segment]
+  
+  targets[, local_snp_bg := {
+    if (sum(!is.na(local_snp_bg)) >= 2) {
+      stats::approx(1:.N, local_snp_bg, xout = 1:.N, rule = 2)$y
+    } else if (sum(!is.na(local_snp_bg)) == 1) {
+      rep(mean(local_snp_bg, na.rm = TRUE), .N)
+    } else {
+      rep(as.numeric(NA), .N)
+    }
+  }, by = segment]
+  
+  # 2. Extrapolate missing segments strictly from structurally adjacent valid logR boundaries
+  for (chr in unique(targets$chromosome)) {
+    chr_idx <- which(targets$chromosome == chr)
+    seg_ids <- unique(targets$segment[chr_idx])
+    if (length(seg_ids) == 0) next
+    
+    seg_summary <- lapply(seg_ids, function(s) {
+      idx <- which(targets$segment == s & targets$chromosome == chr)
+      list(segment = s, log2 = median(targets$smooth_log2[idx], na.rm = TRUE), bg = median(targets$local_snp_bg[idx], na.rm = TRUE))
+    })
+    seg_dt <- data.table::rbindlist(seg_summary)
+    
+    valid_indices <- which(!is.na(seg_dt$bg))
+    if (length(valid_indices) == 0) {
+      targets[chromosome == chr, local_snp_bg := 0.5]
+    } else {
+      for (i in which(is.na(seg_dt$bg))) {
+        left_idx <- valid_indices[valid_indices < i]
+        left_idx <- if (length(left_idx) > 0) max(left_idx) else NA
+        
+        right_idx <- valid_indices[valid_indices > i]
+        right_idx <- if (length(right_idx) > 0) min(right_idx) else NA
+        
+        if (is.na(left_idx)) {
+          best_bg <- seg_dt$bg[right_idx]
+        } else if (is.na(right_idx)) {
+          best_bg <- seg_dt$bg[left_idx]
+        } else {
+          dist_left <- abs(seg_dt$log2[i] - seg_dt$log2[left_idx])
+          dist_right <- abs(seg_dt$log2[i] - seg_dt$log2[right_idx])
+          if (is.na(dist_left) && is.na(dist_right)) {
+            best_bg <- seg_dt$bg[left_idx]
+          } else if (is.na(dist_left)) {
+            best_bg <- seg_dt$bg[right_idx]
+          } else if (is.na(dist_right)) {
+            best_bg <- seg_dt$bg[left_idx]
+          } else {
+            best_bg <- if (dist_left <= dist_right) seg_dt$bg[left_idx] else seg_dt$bg[right_idx]
+          }
+        }
+        targets[chromosome == chr & segment == seg_dt$segment[i], local_snp_bg := best_bg]
+      }
+    }
+  }
+  
   return(list(gis_table = gis_table, targets = targets))
 }
 
@@ -692,13 +768,29 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   # 1. Load Reference
   reference <- load_reference_data(reference_file)
   
-  # 2. Reference PCA
-  message("Computing reference PCA...")
-  ref_pca <- compute_reference_pca(reference)
-  
-  # 3. Load or Generate Counts
+  # 2. Load or Generate Counts
   message("Generating counts for query sample...")
   counts <- load_or_generate_counts(bam_file, reference, output_dir)
+  
+  # 3. Leave-Me-Out: Check if test sample exists in reference by counting data
+  if (!is.null(reference$allcounts)) {
+    match_idx <- integer(0)
+    for (i in seq_along(reference$allcounts)) {
+      if (isTRUE(all.equal(counts$count, reference$allcounts[[i]]$count)) && 
+          isTRUE(all.equal(counts$count_short, reference$allcounts[[i]]$count_short))) {
+        match_idx <- c(match_idx, i)
+      }
+    }
+    if (length(match_idx) > 0) {
+      message("Test sample matched in reference. Excluding it before PCA...")
+      reference$allcounts <- reference$allcounts[-match_idx]
+      reference$samples <- reference$samples[-match_idx]
+    }
+  }
+
+  # 4. Reference PCA
+  message("Computing reference PCA...")
+  ref_pca <- compute_reference_pca(reference)
   
   # 4. Prepare Targets
   targets <- prepare_targets(reference, counts, bam_file)

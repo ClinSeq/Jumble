@@ -114,6 +114,7 @@ load_count_files <- function(count_files) {
   
   for (i in seq_along(count_files)) {
     counts <- readRDS(count_files[i])
+    counts <- sanitize_legacy_counts(counts)
     if (is.null(counts$input_bam_file)) counts$input_bam_file <- count_files[i]
     bed_files[i] <- if (!is.null(counts$target_bed_file)) basename(counts$target_bed_file) else "wgs"
     detected_genomes[i] <- if (!is.null(counts$genome)) counts$genome else NA_character_
