@@ -498,6 +498,15 @@ generate_plots <- function(targets, segments, reference, output_dir,
   if (!is.null(qc_metrics)) {
     plot_title <- sprintf("%s | GC-Bias: %.2f | Noise: %.2f | Waviness: %.2f", 
                           sample_name, qc_metrics$gc_bias, qc_metrics$noise, qc_metrics$waviness)
+    # Add MSI score (mono + di) if somatic VCF was provided
+    if (!is.na(qc_metrics$MSI_mono) && !is.na(qc_metrics$MSI_di)) {
+      msi_score <- qc_metrics$MSI_mono + qc_metrics$MSI_di
+      plot_title <- sprintf("%s | Repeat Tract Indels: %d", plot_title, msi_score)
+    }
+    # Add TMB score if available and valid
+    if (!is.null(qc_metrics$TMB_score) && !is.na(qc_metrics$TMB_score) && qc_metrics$TMB_score != "NA") {
+      plot_title <- sprintf("%s | TMB: %s", plot_title, qc_metrics$TMB_score)
+    }
   }
   
   plot_file <- file.path(output_dir, paste0(sample_name, ".png"))
@@ -530,6 +539,19 @@ generate_plots <- function(targets, segments, reference, output_dir,
       },
       error = function(e) {
         warning("Failed to create MSI plot: ", conditionMessage(e))
+      }
+    )
+  }
+  
+  # TMB VAF plot
+  if (!is.null(somatic)) {
+    tmb_plot_file <- file.path(output_dir, paste0(sample_name, ".tmb.png"))
+    tryCatch(
+      {
+        plot_tmb_vaf(somatic, targets, tmb_plot_file, title = sample_name)
+      },
+      error = function(e) {
+        warning("Failed to create TMB plot: ", conditionMessage(e))
       }
     )
   }
@@ -847,6 +869,15 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   if (!is.null(somatic_vcf)) {
     use_genome <- if (!is.null(genome)) genome else if (!is.null(reference$genome)) reference$genome else "hg19"
     somatic <- process_somatic_vcf(somatic_vcf, reference, genome = use_genome)
+    
+    # Rare germline SNP rejection flagging (LOH integration)
+    if (!is.null(somatic) && nrow(somatic) > 0 && "local_snp_bg" %in% names(targets)) {
+      somatic[, somatic_maf := 0.5 + abs(AF - 0.5)]
+      somatic[, background_maf := targets$local_snp_bg[bin]]
+      somatic[, is_indel := nchar(REF) != nchar(ALT)]
+      somatic[, maf_diff := abs(somatic_maf - background_maf)]
+      somatic[, is_rare_snp := !is.na(maf_diff) & maf_diff <= 0.05]
+    }
   }
   
   # 10. Compute QC Metrics

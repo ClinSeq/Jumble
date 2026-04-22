@@ -1056,7 +1056,7 @@ arrange_and_save_plots <- function(plot_list, use_snp, title, output_file) {
   # Add title
   pa <- patchwork::plot_annotation(
     title = title,
-    caption = paste("Jumble on", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+    caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
   )
   fig <- fig + pa
   
@@ -1295,7 +1295,9 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
   final_plot <- p1 + p2 +
     plot_annotation(
       title = title,
-      theme = theme(plot.title = ggplot2::element_text(size = 16, hjust = 0.5))
+      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
+      theme = theme(plot.title = ggplot2::element_text(size = 16, hjust = 0.5),
+                    plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50"))
     )
 
   # Save
@@ -1383,7 +1385,8 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
                  "Mono repeats" = 1, "Di repeats" = 1, "Tri repeats" = 1),
       drop = FALSE
     ) +
-    ggplot2::labs(title = title, color = NULL, linewidth = NULL) +
+    ggplot2::labs(title = title, color = NULL, linewidth = NULL,
+                  caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))) +
     ggplot2::theme_bw() +
     ggplot2::theme(
       panel.grid.major = ggplot2::element_line(color = "grey90"),
@@ -1392,6 +1395,107 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
       plot.title = ggplot2::element_text(size = 14, hjust = 0.5)
     ) +
     ggplot2::guides(linewidth = "none")
+
+  suppressWarnings(ggplot2::ggsave(output_file, plot = p, width = 10, height = 7, dpi = 300))
+}
+
+#' Plot TMB Estimate vs Minimum VAF Threshold
+#'
+#' @param somatic data.table with AF and variants mapping to valid bins.
+#' @param targets targets data.table.
+#' @param output_file Path to save the plot (PNG).
+#' @param title Plot title.
+#' @return NULL (saves file).
+#' @import ggplot2
+#' @keywords internal
+plot_tmb_vaf <- function(somatic, targets, output_file, title = "TMB VAF Analysis") {
+  if (is.null(somatic) || nrow(somatic) == 0) return(NULL)
+
+  # Mask poorly covered / background
+  valid_bin_indices <- which(targets$is_target == TRUE & targets$count > (0.2 * median(targets$count[targets$is_target == TRUE], na.rm = TRUE)) & targets$count > 50)
+  if (length(valid_bin_indices) == 0) return(NULL)
+  
+  target_mb <- sum(targets[valid_bin_indices, end - start], na.rm = TRUE) / 1e6
+  if (target_mb <= 0) return(NULL)
+
+  if ("is_rare_snp" %in% names(somatic)) {
+    tmb_pool <- somatic[!is.na(bin) & bin %in% valid_bin_indices & (is_rare_snp == FALSE | is.na(is_rare_snp))]
+  } else {
+    tmb_pool <- somatic[!is.na(bin) & bin %in% valid_bin_indices]
+  }
+  
+  if (nrow(tmb_pool) == 0) return(NULL)
+
+  tmb_pool[, is_indel := nchar(REF) != nchar(ALT)]
+  
+  vaf_thresholds <- seq(0.01, 0.50, by = 0.01)
+  
+  plot_data <- data.table::rbindlist(lapply(vaf_thresholds, function(vaf_min) {
+    sub <- tmb_pool[AF >= vaf_min]
+    tmb_snv <- sum(!sub$is_indel)
+    tmb_indel <- sum(sub$is_indel)
+    n_estim <- round(tmb_indel + (tmb_snv * 0.70))
+    est <- n_estim / target_mb
+    
+    data.table::data.table(
+      vaf_threshold = vaf_min,
+      category = c("Substitutions", "Indels", "TMB Estimate (/Mb)"),
+      value = c(tmb_snv, tmb_indel, est)
+    )
+  }))
+  
+  if (nrow(plot_data) == 0) return(NULL)
+  
+  cat_order <- c("Substitutions", "Indels", "TMB Estimate (/Mb)")
+  plot_data[, category := factor(category, levels = cat_order)]
+  
+  cat_colors <- c(
+    "Substitutions" = "#FF7F00",
+    "Indels"        = "#984EA3",
+    "TMB Estimate (/Mb)" = "#000000"
+  )
+  
+  y_max <- max(10, max(plot_data$value, na.rm = TRUE) * 1.1)
+  
+  plot_data[, plot_value := ifelse(value == 0, 0.5, value)]
+
+  p <- ggplot2::ggplot(plot_data, ggplot2::aes(
+    x = vaf_threshold, y = plot_value,
+    color = category, linewidth = category, linetype = category
+  )) +
+    ggplot2::geom_line() +
+    ggplot2::scale_x_continuous(
+      name = "Minimum VAF threshold",
+      breaks = seq(0, 0.5, by = 0.05),
+      labels = function(x) paste0(x * 100, "%"),
+      expand = c(0.01, 0.01)
+    ) +
+    ggplot2::scale_y_log10(
+      name = "Count / Score",
+      breaks = c(1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000)
+    ) +
+    ggplot2::coord_cartesian(ylim = c(0.5, y_max)) +
+    ggplot2::scale_color_manual(values = cat_colors, drop = FALSE) +
+    ggplot2::scale_linewidth_manual(
+      values = c("Substitutions" = 1, "Indels" = 1, "TMB Estimate (/Mb)" = 2.0),
+      drop = FALSE
+    ) +
+    ggplot2::scale_linetype_manual(
+      values = c("Substitutions" = "solid", "Indels" = "solid", "TMB Estimate (/Mb)" = "solid"),
+      drop = FALSE
+    ) +
+    ggplot2::labs(
+      title = title, color = NULL, linewidth = NULL, linetype = NULL,
+      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+    ) +
+    ggplot2::theme_bw() +
+    ggplot2::theme(
+      panel.grid.major = ggplot2::element_line(color = "grey90"),
+      panel.grid.minor = ggplot2::element_blank(),
+      legend.position = "bottom",
+      plot.title = ggplot2::element_text(size = 14, hjust = 0.5)
+    ) +
+    ggplot2::guides(linewidth = "none", linetype = "none")
 
   suppressWarnings(ggplot2::ggsave(output_file, plot = p, width = 10, height = 7, dpi = 300))
 }

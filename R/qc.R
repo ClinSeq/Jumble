@@ -65,16 +65,58 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
   qc$MSI_di         <- NA_integer_
   qc$MSI_tri        <- NA_integer_
 
+  qc$TMB_snv        <- NA_integer_
+  qc$TMB_indel      <- NA_integer_
+  qc$TMB_score      <- NA_character_
+
   if (!is.null(somatic) && nrow(somatic) > 0) {
-    is_indel <- nchar(somatic$REF) != nchar(somatic$ALT)
+    # 1. Base MSI Filtering (AF >= 0.05)
+    high_af_somatic <- somatic[AF >= 0.05]
+    
+    is_indel <- nchar(high_af_somatic$REF) != nchar(high_af_somatic$ALT)
     qc$somatic_snvs  <- sum(!is_indel)
     qc$somatic_indels <- sum(is_indel)
 
-    if ("MSI" %in% names(somatic)) {
-      msi_vals <- somatic$MSI[!is.na(somatic$MSI)]
+    if ("MSI" %in% names(high_af_somatic)) {
+      msi_vals <- high_af_somatic$MSI[!is.na(high_af_somatic$MSI)]
       qc$MSI_mono <- sum(msi_vals == 1)
       qc$MSI_di   <- sum(msi_vals == 2)
       qc$MSI_tri  <- sum(msi_vals == 3)
+    }
+
+    # 2. TMB Footprint Masking
+    if ("bin" %in% names(high_af_somatic)) {
+      median_count <- median(targets$count[targets$is_target == TRUE], na.rm = TRUE)
+      if (is.finite(median_count) && !is.na(median_count)) {
+        valid_bin_indices <- which(targets$is_target == TRUE & targets$count > (0.2 * median_count) & targets$count > 50)
+        
+        if (length(valid_bin_indices) > 0) {
+          target_mb <- sum(targets[valid_bin_indices, end - start], na.rm = TRUE) / 1e6
+          
+          # Reject background rare germline SNPs (LOH tracked)
+          if ("is_rare_snp" %in% names(high_af_somatic)) {
+            tmb_pool <- high_af_somatic[!is.na(bin) & bin %in% valid_bin_indices & (is_rare_snp == FALSE | is.na(is_rare_snp))]
+          } else {
+            tmb_pool <- high_af_somatic[!is.na(bin) & bin %in% valid_bin_indices]
+          }
+          
+          tmb_is_indel <- nchar(tmb_pool$REF) != nchar(tmb_pool$ALT)
+          
+          tmb_indel <- sum(tmb_is_indel)
+          tmb_snv <- sum(!tmb_is_indel)
+          
+          qc$TMB_snv <- tmb_snv
+          qc$TMB_indel <- tmb_indel
+          
+          n_estim <- round(tmb_indel + (tmb_snv * 0.70))
+          ptest <- stats::poisson.test(n_estim)
+          est <- round(n_estim / target_mb, 1)
+          l_ci <- round(ptest$conf.int[1] / target_mb, 1)
+          u_ci <- round(ptest$conf.int[2] / target_mb, 1)
+          
+          qc$TMB_score <- sprintf("%.1f (%.1f-%.1f)", est, l_ci, u_ci)
+        }
+      }
     }
   }
 
