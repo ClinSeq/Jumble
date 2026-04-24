@@ -1053,10 +1053,13 @@ arrange_and_save_plots <- function(plot_list, use_snp, title, output_file) {
       theme(legend.position = "none")
   }
   
-  # Add title
+  # Add title and footer
   pa <- patchwork::plot_annotation(
     title = title,
-    caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+    caption = paste0("Jumble ", get_jumble_version(), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
+    theme = ggplot2::theme(
+      plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50")
+    )
   )
   fig <- fig + pa
   
@@ -1386,13 +1389,14 @@ plot_msi_vaf <- function(somatic, output_file, title = "MSI VAF Analysis") {
       drop = FALSE
     ) +
     ggplot2::labs(title = title, color = NULL, linewidth = NULL,
-                  caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))) +
+                  caption = paste0("Jumble ", get_jumble_version(), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))) +
     ggplot2::theme_bw() +
     ggplot2::theme(
       panel.grid.major = ggplot2::element_line(color = "grey90"),
       panel.grid.minor = ggplot2::element_blank(),
       legend.position = "bottom",
-      plot.title = ggplot2::element_text(size = 14, hjust = 0.5)
+      plot.title = ggplot2::element_text(size = 14, hjust = 0.5),
+      plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50")
     ) +
     ggplot2::guides(linewidth = "none")
 
@@ -1486,14 +1490,15 @@ plot_tmb_vaf <- function(somatic, targets, output_file, title = "TMB VAF Analysi
     ) +
     ggplot2::labs(
       title = title, color = NULL, linewidth = NULL, linetype = NULL,
-      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
+      caption = paste0("Jumble ", get_jumble_version(), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M"))
     ) +
     ggplot2::theme_bw() +
     ggplot2::theme(
       panel.grid.major = ggplot2::element_line(color = "grey90"),
       panel.grid.minor = ggplot2::element_blank(),
       legend.position = "bottom",
-      plot.title = ggplot2::element_text(size = 14, hjust = 0.5)
+      plot.title = ggplot2::element_text(size = 14, hjust = 0.5),
+      plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50")
     ) +
     ggplot2::guides(linewidth = "none", linetype = "none")
 

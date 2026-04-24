@@ -8,7 +8,7 @@ Jumble automatically generates quality control (QC) metrics for each sample anal
 **Filename**: `<sample_name>.qc.csv`  
 **Format**: CSV with header row and one data row per sample
 
-## QC Metrics (18 columns)
+## QC Metrics (21 columns)
 
 | # | Column | Description |
 |---|--------|-------------|
@@ -30,8 +30,11 @@ Jumble automatically generates quality control (QC) metrics for each sample anal
 | 16 | `MSI_mono` | Count of MSI-like indels in mononucleotide repeats |
 | 17 | `MSI_di` | Count of MSI-like indels in dinucleotide repeats |
 | 18 | `MSI_tri` | Count of MSI-like indels in trinucleotide repeats |
+| 19 | `TMB_snv` | Tumor Mutational Burden — SNV count per Mb (somatic SNVs only) |
+| 20 | `TMB_indel` | Tumor Mutational Burden — indel count per Mb (somatic indels only) |
+| 21 | `TMB_score` | Tumor Mutational Burden — combined SNV + indel count per Mb |
 
-Columns 4–5 and 10–18 are `NA` when the corresponding VCF input is not provided.
+Columns 4–5 and 10–21 are `NA` when the corresponding VCF input is not provided.
 
 ### GC Content Bias
 - **gc_bias**: `log2(mean_high_gc_count / mean_low_gc_count)`
@@ -46,8 +49,8 @@ Columns 4–5 and 10–18 are `NA` when the corresponding VCF input is not provi
 ## Example Output
 
 ```csv
-"sample","bam_file","reference_file","snp_vcf","somatic_vcf","median_target_count","gc_bias","noise","waviness","het_snps","hom_snps","sex","contamination","somatic_snvs","somatic_indels","MSI_mono","MSI_di","MSI_tri"
-"SampleA","sample.counts.RDS","reference.RDS","sample.vcf.gz",NA,1947,0.24,0.31,0.08,4356,2102,"F",0.01,NA,NA,NA,NA,NA
+"sample","bam_file","reference_file","snp_vcf","somatic_vcf","median_target_count","gc_bias","noise","waviness","het_snps","hom_snps","sex","contamination","somatic_snvs","somatic_indels","MSI_mono","MSI_di","MSI_tri","TMB_snv","TMB_indel","TMB_score"
+"SampleA","sample.counts.RDS","reference.RDS","sample.vcf.gz",NA,1947,0.24,0.31,0.08,4356,2102,"F",0.01,142,18,5,2,1,3.2,0.4,3.6
 ```
 
 ## Interpreting QC Metrics
@@ -74,6 +77,15 @@ Columns 4–5 and 10–18 are `NA` when the corresponding VCF input is not provi
 - Based on indel classification in repeat tracts from the somatic VCF
 - `MSI_mono`, `MSI_di`, `MSI_tri` count MSI-like indels by repeat type
 - High `MSI_mono` counts are indicative of microsatellite instability
+
+### Tumor Mutational Burden (TMB)
+- Computed from the somatic VCF (requires `somatic_vcf` input)
+- Only variants with allele frequency ≥ 0.05 are counted
+- Normalised to mutations per megabase (Mb) using the callable target region size
+- `TMB_snv`: SNV burden (substitutions only)
+- `TMB_indel`: Indel burden (insertions and deletions only)
+- `TMB_score`: Combined SNV + indel burden (the standard reported TMB)
+- Typical thresholds: TMB-High ≥ 10 mut/Mb (tumour-type dependent)
 
 ## Using QC Metrics
 

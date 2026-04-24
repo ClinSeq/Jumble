@@ -1,3 +1,19 @@
+#' Get Jumble Package Version
+#'
+#' Robustly retrieves the package version, even when loaded via devtools.
+#'
+#' @return A character string with the version number.
+#' @keywords internal
+get_jumble_version <- function() {
+  ver <- tryCatch({
+    as.character(utils::packageVersion("Jumble"))
+  }, error = function(e) {
+    "unknown"
+  })
+  if (is.null(ver) || nchar(ver) == 0 || ver == "NA") ver <- "unknown"
+  return(ver)
+}
+
 #' Detect Genome Build from BAM Header
 #'
 #' Inspects the BAM header to guess the genome build (hg19 or hg38).

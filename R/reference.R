@@ -295,7 +295,8 @@ build_reference <- function(count_files, annotation_source = "biomart", genome =
   )
   
   if (is.null(output_file)) {
-    name <- stringr::str_remove(stringr::str_remove(reference$target_bed_file %||% "jumble.WGS", ".*/"), "\\.[^.]+$")
+    bed_name <- if (is.null(reference$target_bed_file)) "jumble.WGS" else reference$target_bed_file
+    name <- stringr::str_remove(stringr::str_remove(bed_name, ".*/"), "\\.[^.]+$")
     output_file <- paste0(name, ".reference.RDS")
   }
   

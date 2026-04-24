@@ -496,16 +496,22 @@ generate_plots <- function(targets, segments, reference, output_dir,
   
   plot_title <- sample_name
   if (!is.null(qc_metrics)) {
-    plot_title <- sprintf("%s | GC-Bias: %.2f | Noise: %.2f | Waviness: %.2f", 
-                          sample_name, qc_metrics$gc_bias, qc_metrics$noise, qc_metrics$waviness)
-    # Add MSI score (mono + di) if somatic VCF was provided
-    if (!is.na(qc_metrics$MSI_mono) && !is.na(qc_metrics$MSI_di)) {
-      msi_score <- qc_metrics$MSI_mono + qc_metrics$MSI_di
+    plot_title <- sprintf("%s | GC-Bias: %.2f | Noise: %.2f | Waviness: %.2f",
+                          sample_name,
+                          qc_metrics$gc_bias[[1]],
+                          qc_metrics$noise[[1]],
+                          qc_metrics$waviness[[1]])
+    # Add MSI score (mono + di) if available
+    msi_mono <- qc_metrics$MSI_mono[[1]]
+    msi_di   <- qc_metrics$MSI_di[[1]]
+    if (!is.null(msi_mono) && !is.na(msi_mono) && !is.null(msi_di) && !is.na(msi_di)) {
+      msi_score <- msi_mono + msi_di
       plot_title <- sprintf("%s | Repeat Tract Indels: %d", plot_title, msi_score)
     }
     # Add TMB score if available and valid
-    if (!is.null(qc_metrics$TMB_score) && !is.na(qc_metrics$TMB_score) && qc_metrics$TMB_score != "NA") {
-      plot_title <- sprintf("%s | TMB: %s", plot_title, qc_metrics$TMB_score)
+    tmb_score <- qc_metrics$TMB_score[[1]]
+    if (!is.null(tmb_score) && !is.na(tmb_score) && nchar(tmb_score) > 0 && tmb_score != "NA") {
+      plot_title <- sprintf("%s | TMB: %s", plot_title, tmb_score)
     }
   }
   
@@ -798,15 +804,20 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   if (!is.null(reference$allcounts)) {
     match_idx <- integer(0)
     for (i in seq_along(reference$allcounts)) {
-      if (isTRUE(all.equal(counts$count, reference$allcounts[[i]]$count)) && 
+      if (isTRUE(all.equal(counts$count, reference$allcounts[[i]]$count)) &&
           isTRUE(all.equal(counts$count_short, reference$allcounts[[i]]$count_short))) {
         match_idx <- c(match_idx, i)
       }
     }
     if (length(match_idx) > 0) {
-      message("Test sample matched in reference. Excluding it before PCA...")
-      reference$allcounts <- reference$allcounts[-match_idx]
-      reference$samples <- reference$samples[-match_idx]
+      remaining <- length(reference$allcounts) - length(match_idx)
+      if (remaining >= 1) {
+        message("Test sample matched in reference. Excluding it before PCA...")
+        reference$allcounts <- reference$allcounts[-match_idx]
+        reference$samples <- reference$samples[-match_idx]
+      } else {
+        warning("Test sample matched all reference samples. Skipping leave-me-out exclusion to preserve reference for PCA.")
+      }
     }
   }
 

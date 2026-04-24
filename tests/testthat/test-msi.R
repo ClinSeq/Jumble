@@ -172,10 +172,12 @@ test_that("compute_qc_metrics includes MSI columns when somatic provided", {
   )
 
   # Somatic with MSI column and REF/ALT for total counts
+  # AF column required by compute_qc_metrics (filters somatic[AF >= 0.05])
   somatic <- data.table::data.table(
     REF = c("A", "AT", "A", "A", "AC", "ACG"),
     ALT = c("G", "A",  "AT", "AT", "A",  "A"),
-    MSI = c(NA, 0L, 1L, 1L, 2L, 3L)
+    MSI = c(NA, 0L, 1L, 1L, 2L, 3L),
+    AF  = c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
   )
 
   qc <- compute_qc_metrics(
@@ -194,7 +196,7 @@ test_that("compute_qc_metrics includes MSI columns when somatic provided", {
   expect_equal(qc$MSI_tri, 1L)
 })
 
-test_that("compute_qc_metrics always returns all 18 columns", {
+test_that("compute_qc_metrics always returns all 21 columns", {
   targets <- data.table::data.table(
     chromosome = c("1"),
     start = c(100),
@@ -212,11 +214,12 @@ test_that("compute_qc_metrics always returns all 18 columns", {
     reference_file = "ref.RDS"
   )
 
-  # All 18 columns should be present, even without VCFs
+  # All 21 columns should be present, even without VCFs
   expected_cols <- c("sample", "bam_file", "reference_file", "snp_vcf", "somatic_vcf",
                      "median_target_count", "gc_bias", "noise", "waviness",
                      "het_snps", "hom_snps", "sex", "contamination",
-                     "somatic_snvs", "somatic_indels", "MSI_mono", "MSI_di", "MSI_tri")
+                     "somatic_snvs", "somatic_indels", "MSI_mono", "MSI_di", "MSI_tri",
+                     "TMB_snv", "TMB_indel", "TMB_score")
   expect_equal(names(qc), expected_cols)
 
   # Somatic/SNP columns should be NA when not provided
