@@ -1,3 +1,14 @@
+# Jumble 0.5.2
+
+*   **Leave-Me-Out Guard**: Fixed crash when query sample matches all reference
+    samples (single-sample reference). Exclusion is now skipped with a warning
+    rather than leaving an empty reference.
+*   **GC Correction**: `correct_by_gc` now trains loess on backbone-weighted bins
+    only, and caps training set at 10,000 points.
+*   **QC Output**: `compute_qc_metrics` returns 21 columns — added `TMB_snv`,
+    `TMB_indel`, `TMB_score` (mutations per Mb; `NA` without somatic VCF).
+*   **Plot Title**: Fixed scalar extraction from QC metric columns.
+
 # Jumble 0.5.1
 
 *   **Leave-Me-Out Restored**: Test samples present in the reference are now
