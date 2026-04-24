@@ -42,8 +42,7 @@ Generate binned read counts from your BAM files. This produces `.counts.RDS` fil
 library(Jumble)
 generate_counts(
   bam_file = "sample.bam",
-  target_bed_file = "targets.bed",
-  output_dir = "counts_output"
+  target_bed = "targets.bed"
 )
 ```
 
@@ -51,8 +50,7 @@ generate_counts(
 ```r
 generate_counts(
   bam_file = "sample.bam",
-  bin_size = 10000,
-  output_dir = "counts_output"
+  wgs_bin_size = 10000
 )
 ```
 
@@ -84,7 +82,7 @@ results <- run_jumble(
 
 # Access segments and QC metrics
 print(head(results$segments))
-print(results$qc)
+print(head(results$targets))
 ```
 
 ### Command Line Interface

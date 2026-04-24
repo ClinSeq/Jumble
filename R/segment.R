@@ -99,11 +99,13 @@ process_segments <- function(segments, targets) {
 #' @param segments Processed segments data.table.
 #' @param cancergenes Data.table of cancer genes with coordinates.
 #' @param cancerexons Data.table of cancer exons with coordinates.
+#' @param allgenes Data.table of all protein-coding genes.
+#' @param cytobands Data.table of cytoband coordinates.
 #' @return The annotated `segments` data.table.
 #' @importFrom GenomicRanges makeGRangesFromDataFrame findOverlaps
 #' @importFrom data.table as.data.table :=
 #' @keywords internal
-annotate_segments <- function(segments, cancergenes, cancerexons) {
+annotate_segments <- function(segments, cancergenes, cancerexons, allgenes = NULL, cytobands = NULL) {
   has_coords <- all(c("chromosome", "start", "end") %in% names(cancergenes))
   
   if (!has_coords) {
@@ -145,35 +147,85 @@ annotate_segments <- function(segments, cancergenes, cancerexons) {
     keep.extra.columns = TRUE
   )
   
+  segments[, band := ""]
+  
+  if (!is.null(cytobands) && nrow(cytobands) > 0) {
+    cyto_gr <- makeGRangesFromDataFrame(cytobands, seqnames.field = "chromosome", start.field = "start", end.field = "end", keep.extra.columns = TRUE)
+    cyto_overlap <- as.data.table(findOverlaps(segranges, cyto_gr))
+    
+    for (i in seq_len(nrow(segments))) {
+      c_ix <- cyto_overlap[queryHits == i]$subjectHits
+      if (length(c_ix) > 0) {
+        bands <- cytobands$band[c_ix]
+        if (length(bands) == 1) {
+          segments[i, band := paste0(segments$chromosome[i], bands)]
+        } else {
+          # e.g., 17q21.2-q21.31
+          segments[i, band := paste0(segments$chromosome[i], bands[1], "-", bands[length(bands)])]
+        }
+      }
+    }
+  }
+  
+  allgene_overlap <- NULL
+  if (!is.null(allgenes) && nrow(allgenes) > 0) {
+    allgene_gr <- makeGRangesFromDataFrame(allgenes, seqnames.field = "Chromosome/scaffold name", start.field = "Gene start (bp)", end.field = "Gene end (bp)", keep.extra.columns = TRUE)
+    allgene_overlap <- as.data.table(findOverlaps(segranges, allgene_gr))
+  }
+  
   gene_overlap <- as.data.table(findOverlaps(segranges, generanges))
   exon_overlap <- as.data.table(findOverlaps(segranges, exonranges))
   
   for (i in seq_len(nrow(segments))) {
-    gene_ix <- gene_overlap[queryHits == i]$subjectHits
-    
-    if (length(gene_ix) > 0) {
-      genetable <- cancergenes[gene_ix, .(
-        symbol = hugo_symbol,
-        id = ensembl_gene_id_version, 
-        type = ANNOT
-      )]
-      genetable[, exonic := FALSE]
-      genetable[, label := ""]
-      
-      segments[i, genes := paste(genetable$symbol, collapse = ",")]
-      
-      exon_ix <- exon_overlap[queryHits == i]$subjectHits
-      
-      if (length(exon_ix) > 0) {
-        exontable <- exons_prep[exon_ix]
-        genetable[id %in% exontable$id, exonic := TRUE]
+    n_genes <- 0
+    if (!is.null(allgene_overlap)) {
+      a_ix <- allgene_overlap[queryHits == i]$subjectHits
+      n_genes <- length(a_ix)
+      if (n_genes > 0) {
+        if (n_genes > 10) {
+          segments[i, genes := paste0(n_genes, " genes")]
+        } else {
+          segments[i, genes := paste(allgenes$`Gene name`[a_ix], collapse = ",")]
+        }
       }
-      
-      genetable[exonic == TRUE, label := symbol]
-      genetable[exonic == TRUE & type != "AMBI", label := paste0(symbol, "|", type)]
-      
-      rel_label <- paste(genetable[exonic == TRUE]$label, collapse = ",")
-      segments[i, relevance := rel_label]
+    } else {
+      # Fallback to cancergenes if allgenes not provided
+      c_ix <- gene_overlap[queryHits == i]$subjectHits
+      n_genes <- length(c_ix)
+      if (n_genes > 0) {
+        if (n_genes > 10) {
+          segments[i, genes := paste0(n_genes, " genes")]
+        } else {
+          segments[i, genes := paste(cancergenes$hugo_symbol[c_ix], collapse = ",")]
+        }
+      }
+    }
+    
+    if (n_genes <= 10) {
+      gene_ix <- gene_overlap[queryHits == i]$subjectHits
+      if (length(gene_ix) > 0) {
+        genetable <- cancergenes[gene_ix, .(
+          symbol = hugo_symbol,
+          id = ensembl_gene_id_version, 
+          type = ANNOT
+        )]
+        genetable[, exonic := FALSE]
+        genetable[, label := ""]
+        
+        exon_ix <- exon_overlap[queryHits == i]$subjectHits
+        if (length(exon_ix) > 0) {
+          exontable <- exons_prep[exon_ix]
+          genetable[id %in% exontable$id, exonic := TRUE]
+        }
+        
+        genetable[exonic == TRUE, label := symbol]
+        genetable[exonic == TRUE & type != "AMBI", label := paste0(symbol, "|", type)]
+        
+        rel_label <- paste(genetable[exonic == TRUE]$label, collapse = ",")
+        segments[i, relevance := rel_label]
+      }
+    } else {
+      segments[i, relevance := ""]
     }
   }
   
@@ -187,11 +239,11 @@ annotate_segments <- function(segments, cancergenes, cancerexons) {
 #'
 #' @param targets Normalized targets data.table.
 #' @param alpha Significance level for segmentation (default: 0.02, or 1e-5 for WGS).
-#' @param cancergenes Optional data.table of cancer genes for annotation.
-#' @param cancerexons Optional data.table of cancer exons for annotation.
+#' @param allgenes Optional data.table of all genes for annotation.
+#' @param cytobands Optional data.table of cytobands.
 #' @return A list containing the segment table and the updated targets with segment IDs.
 #' @keywords internal
-segment_data <- function(targets, alpha = NULL, cancergenes = NULL, cancerexons = NULL) {
+segment_data <- function(targets, alpha = NULL, cancergenes = NULL, cancerexons = NULL, allgenes = NULL, cytobands = NULL) {
   if (is.null(alpha)) alpha <- 0.02
   
   # 1. Run CBS Segmentation
@@ -204,7 +256,7 @@ segment_data <- function(targets, alpha = NULL, cancergenes = NULL, cancerexons 
   
   # 3. Annotate Segments (if references are provided)
   if (!is.null(cancergenes) && !is.null(cancerexons) && nrow(cancergenes) > 0) {
-    segments <- annotate_segments(segments, cancergenes, cancerexons)
+    segments <- annotate_segments(segments, cancergenes, cancerexons, allgenes, cytobands)
   }
   
   return(list(segments = segments, targets = targets))

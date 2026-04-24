@@ -8,7 +8,8 @@ compute_gis_table(
   targets,
   snps = NULL,
   fractions = seq(0.01, 1, by = 0.01),
-  genome = "hg19"
+  genome = "hg19",
+  hrd_model = NULL
 )
 }
 \arguments{
@@ -19,6 +20,8 @@ compute_gis_table(
 \item{fractions}{Vector of purity fractions to test (default: 0.01 to 1.00 by 0.01).}
 
 \item{genome}{Genome version ("hg19" or "hg38"). Default "hg19".}
+
+\item{hrd_model}{Optional HRD model.}
 }
 \value{
 Data.table with fraction, predicted_gis, and feature counts.

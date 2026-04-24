@@ -103,12 +103,11 @@ Rscript jumble-run.R -r reference.RDS -b sample.bam -v germline.vcf.gz -s somati
 - `-a, --alpha N`: Segmentation alpha parameter [default: 0.001]
 
 **Output files:**
-- `<sample>.jumble.RDS` - Full results
-- `<sample>.png` - Plots
-- `<sample>.cnr` - CNVkit format bins
-- `<sample>.cns` - CNVkit format segments
-- `<sample>_dnacopy.seg` - DNAcopy format segments
-- `<sample>.jumble_snps.RDS` - SNP data (if VCF provided)
+- `<sample>.jumble.csv` - Normalized bin-level copy number data
+- `<sample>.jumble_snps.csv` - SNP/LOH data (if SNP VCF provided)
+- `<sample>.jumble_gis.csv` - GIS/HRD scores (if SNP VCF provided)
+- `<sample>.qc.csv` - QC metrics (21 columns, always generated)
+- `<sample>.png` - Copy number plot
 
 ---
 

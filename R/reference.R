@@ -115,7 +115,6 @@ load_count_files <- function(count_files) {
   for (i in seq_along(count_files)) {
     counts <- readRDS(count_files[i])
     counts <- sanitize_legacy_counts(counts)
-    
     if (is.null(counts$input_bam_file)) counts$input_bam_file <- count_files[i]
     bed_files[i] <- if (!is.null(counts$target_bed_file)) basename(counts$target_bed_file) else "wgs"
     detected_genomes[i] <- if (!is.null(counts$genome)) counts$genome else NA_character_
@@ -141,10 +140,30 @@ create_target_template <- function(counts1, is_wgs, allcounts) {
   targets[, bin := 1:.N]
   targets[, c("clean_chr", "chr_factor") := NULL]
   
+  if (!is_wgs && !is.null(counts1$bed)) {
+    bin_gr <- GenomicRanges::makeGRangesFromDataFrame(targets, seqnames.field = "chromosome", keep.extra.columns = FALSE)
+    bed_gr <- GenomicRanges::makeGRangesFromDataFrame(counts1$bed, seqnames.field = "chromosome", start.field = "start", end.field = "end", keep.extra.columns = TRUE)
+    ol <- GenomicRanges::findOverlaps(bin_gr, bed_gr)
+    
+    map_dt <- data.table::data.table(bin_idx = S4Vectors::queryHits(ol))
+    targets[, bed_name := ""]
+    
+    if ("bed_name" %in% names(GenomicRanges::mcols(bed_gr))) {
+      map_dt$bed_name <- bed_gr$bed_name[S4Vectors::subjectHits(ol)]
+      map_dt <- map_dt[!is.na(bed_name) & bed_name != ""]
+      if (nrow(map_dt) > 0) {
+        agg <- map_dt[, .(bed_name_coll = paste(unique(bed_name), collapse = ",")), by = bin_idx]
+        targets[agg$bin_idx, bed_name := agg$bed_name_coll]
+      }
+    }
+  } else {
+    targets[, bed_name := ""]
+  }
+  
   # Define Background
   if (is_wgs) {
-    min_w <- min(targets$width)
-    targets[width != min_w, is_target := FALSE]
+    max_w <- max(targets$width)
+    targets[width != max_w, is_target := FALSE]
   } else {
     targets[width > 100000, is_target := FALSE]
   }
@@ -178,6 +197,33 @@ calculate_gc_content <- function(targets, ucsc_ranges, genome) {
   gc_values <- Biostrings::letterFrequency(seqs, letters = "GC", as.prob = TRUE)[,1]
   targets[is_target %in% c(TRUE, FALSE), gc := gc_values]
   return(targets)
+}
+
+#' Load Cytobands
+#' @keywords internal
+#' @importFrom stringr str_remove
+#' @importFrom data.table as.data.table setnames :=
+load_cytobands <- function(genome) {
+  filename <- if (genome == "hg19") "cytoband_hg19.rds" else "cytoband_hg38.rds"
+  path <- system.file("extdata", filename, package = "Jumble")
+  if (path == "") path <- file.path("inst/extdata", filename)
+  if (!file.exists(path)) { 
+    warning("Cytoband file not found: ", filename)
+    return(data.table::data.table()) 
+  }
+  
+  cb <- data.table::as.data.table(readRDS(path))
+  # Standardize chromosome and band columns
+  if ("chrom" %in% names(cb) && !"chromosome" %in% names(cb)) {
+    data.table::setnames(cb, "chrom", "chromosome")
+  }
+  if ("name" %in% names(cb) && !"band" %in% names(cb)) {
+    data.table::setnames(cb, "name", "band")
+  }
+  if (!is.null(cb$chromosome)) {
+    cb[, chromosome := stringr::str_remove(as.character(chromosome), "^chr")]
+  }
+  return(cb)
 }
 
 #' Build Reference Panel
@@ -244,11 +290,13 @@ build_reference <- function(count_files, annotation_source = "biomart", genome =
     allgenes = annot$allgenes,
     allexons = annot$allexons,
     cancergenes_clinseq = annot$cancergenes_clinseq,
+    cytobands = load_cytobands(genome),
     genome = genome
   )
   
   if (is.null(output_file)) {
-    name <- stringr::str_remove(stringr::str_remove(reference$target_bed_file %||% "jumble.WGS", ".*/"), "\\.[^.]+$")
+    bed_name <- if (is.null(reference$target_bed_file)) "jumble.WGS" else reference$target_bed_file
+    name <- stringr::str_remove(stringr::str_remove(bed_name, ".*/"), "\\.[^.]+$")
     output_file <- paste0(name, ".reference.RDS")
   }
   

@@ -1,13 +1,47 @@
+# Jumble 0.5.2
+
+*   **Leave-Me-Out Guard**: Fixed crash when query sample matches all reference
+    samples (single-sample reference). Exclusion is now skipped with a warning
+    rather than leaving an empty reference.
+*   **GC Correction**: `correct_by_gc` now trains loess on backbone-weighted bins
+    only, and caps training set at 10,000 points.
+*   **QC Output**: `compute_qc_metrics` returns 21 columns — added `TMB_snv`,
+    `TMB_indel`, `TMB_score` (mutations per Mb; `NA` without somatic VCF).
+*   **Plot Title**: Fixed scalar extraction from QC metric columns.
+
+# Jumble 0.5.1
+
+*   **Leave-Me-Out Restored**: Test samples present in the reference are now
+    correctly excluded before PCA normalization, preventing self-normalization bias.
+*   **Legacy Count Sanitization**: Restored the full two-step `sanitize_legacy_counts`
+    function (exact-duplicate removal + phantom grid fingerprinting via target overlap).
+    Replaces a broken interim implementation.
+*   **Somatic VCF Fixes**:
+    *   Restored VEP fallback parser for VCFs lacking CSQ annotation (parses INFO/GENE,
+        INFO/EFFECT, INFO/CLINVAR).
+    *   Restored MAX_AF population frequency filter to remove common germline
+        variants from somatic calls.
+    *   Restored chromosome name harmonization (`chr` prefix handling) in
+        `map_variants_to_bins`.
+*   **Local SNP Background**: Restored segment-based `local_snp_bg` smoothing
+    (within-segment `runmed`, cross-segment extrapolation) for somatic filtering.
+*   **Normalize Fix**: Restored `clean_chrom_names` call in `compute_reference_pca`.
+*   **Strand Filter**: Fixed `gaps()` in `create_background_bins` to filter for
+    `strand == "*"`, preventing phantom stranded background bins in new count files.
+
 # Jumble 0.5.0
 
-*   **Y-Chromosome Artifact Sanitization**: Eliminated "double background bin" copy number artifacts caused by a bug in `generate_counts`. Existing `.counts.RDS` files are handled automatically and should not need to be regenerated.
-*   **TMB (Tumor Mutational Burden)**: Added TMB estimation to QC output when a somatic VCF is provided.
-    *   New QC columns: `TMB_snv`, `TMB_indel`, `TMB_score` (Poisson CI: e.g. `8.3 (6.1-11.0)` per Mb).
-    *   TMB is only computed over well-covered target bins (count ≥ 20% of median and ≥ 50 reads).
-
+*   **Custom HRD Model**: Support for user-supplied HRD models (randomForest, glm,
+    or plain function) via `hrd_model_file` parameter and `-m` CLI flag. Adds a
+    `custom_HRD` column to GIS output.
+*   **Segment Annotation**: Enhanced segment annotation with all protein-coding genes
+    (not just cancer genes) and cytoband labeling. Gene lists are rolled up to
+    "N genes" when a segment spans more than 10 genes.
+*   **Gene Table Integration**: Full Ensembl gene table cached in reference for
+    comprehensive segment-level gene annotation.
+*   **Ideogram Improvements**: Improved ideogram visualization.
 
 # Jumble 0.4.1
-
 
 *   **MSI Classification**: Added microsatellite instability calling from somatic VCFs.
     *   New `classify_msi()` engine detects indels in mono-, di-, and trinucleotide repeat tracts.

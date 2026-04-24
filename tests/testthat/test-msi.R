@@ -172,11 +172,12 @@ test_that("compute_qc_metrics includes MSI columns when somatic provided", {
   )
 
   # Somatic with MSI column and REF/ALT for total counts
+  # AF column required by compute_qc_metrics (filters somatic[AF >= 0.05])
   somatic <- data.table::data.table(
     REF = c("A", "AT", "A", "A", "AC", "ACG"),
     ALT = c("G", "A",  "AT", "AT", "A",  "A"),
-    AF  = c(0.4, 0.4,  0.4,  0.4,  0.4,  0.4),
-    MSI = c(NA, 0L, 1L, 1L, 2L, 3L)
+    MSI = c(NA, 0L, 1L, 1L, 2L, 3L),
+    AF  = c(0.3, 0.4, 0.5, 0.6, 0.7, 0.8)
   )
 
   qc <- compute_qc_metrics(
@@ -195,7 +196,7 @@ test_that("compute_qc_metrics includes MSI columns when somatic provided", {
   expect_equal(qc$MSI_tri, 1L)
 })
 
-test_that("compute_qc_metrics always returns all 18 columns", {
+test_that("compute_qc_metrics always returns all 21 columns", {
   targets <- data.table::data.table(
     chromosome = c("1"),
     start = c(100),

@@ -21,7 +21,7 @@ reconstruct_targets_from_reference <- function(reference) {
   }
   
   if (length(targetlist) == 0) return(data.table::data.table())
-  data.table::rbindlist(targetlist, fill = TRUE)
+  data.table::rbindlist(targetlist)
 }
 
 #' Apply Value Floor
@@ -46,28 +46,18 @@ apply_value_floor <- function(x) {
 #' @keywords internal
 filter_bins_by_coverage <- function(targets) {
   if (!"count" %in% names(targets)) return(targets)
+  if (!"is_target" %in% names(targets)) return(targets)
+  if (sum(targets$is_target == TRUE) == 0) return(targets)
   
-  # Determine which bins to use for threshold calculation
-  # Use is_target if available, otherwise use all bins
-  use_idx <- if ("is_target" %in% names(targets)) which(targets$is_target == TRUE) else seq_len(nrow(targets))
-  
-  if (length(use_idx) == 0) return(targets)
-
   # Low coverage threshold
-  threshold_low <- median(targets[use_idx]$count, na.rm = TRUE) * 0.01
-  
+  threshold_low <- median(targets[is_target == TRUE]$count, na.rm = TRUE) * 0.01
   if (is.finite(threshold_low)) {
     keep_bins_low <- targets[, .(m = median(count, na.rm = TRUE)), by = bin][m > threshold_low]$bin
     targets <- targets[bin %in% keep_bins_low]
   }
   
   # High coverage threshold
-  # Re-calculate indices after filtration
-  use_idx <- if ("is_target" %in% names(targets)) which(targets$is_target == TRUE) else seq_len(nrow(targets))
-  if (length(use_idx) == 0) return(targets)
-  
-  threshold_high <- median(targets[use_idx]$count, na.rm = TRUE) / 0.05
-  
+  threshold_high <- median(targets[is_target == TRUE]$count, na.rm = TRUE) / 0.05
   if (is.finite(threshold_high)) {
     keep_bins_high <- targets[, .(m = median(count, na.rm = TRUE)), by = bin][m < threshold_high]$bin
     targets <- targets[bin %in% keep_bins_high]
@@ -412,18 +402,37 @@ correct_by_pca <- function(data, train_indices = NULL) {
 #' @return Corrected log ratio vector
 #' @keywords internal
 correct_by_gc <- function(data, train_indices = NULL, span = 0.75) {
+  # Identify weights if available
+  w_col <- if ("backbone_weight" %in% names(data)) "backbone_weight" else NULL
+  
+  # Handle missing train_indices
   if (is.null(train_indices)) {
-    train_indices <- rep(TRUE, nrow(data))
+    if (!is.null(w_col)) {
+      train_indices <- data[[w_col]] > 0
+    } else if ("is_backbone" %in% names(data)) {
+      train_indices <- data$is_backbone
+    } else {
+      # Default to everything if no backbone info at all
+      train_indices <- rep(TRUE, nrow(data))
+    }
   }
   
   # Identify valid rows
   valid_rows <- is.finite(data$lr) & is.finite(data$gc)
-  train_indices_clean <- train_indices & valid_rows
+  train_indices_clean <- which(train_indices & valid_rows)
   
-  n_points <- sum(train_indices_clean)
-  if (n_points <= 5) return(data$lr)  # Not enough points for loess
+  n_points <- length(train_indices_clean)
+  if (n_points <= 5) return(data$lr)
   
-  w <- if ("backbone_weight" %in% names(data)) data$backbone_weight[train_indices_clean] else NULL
+  # Subsample if too many points (loess scales poorly)
+  if (n_points > 10000) {
+    set.seed(42)
+    train_indices_clean <- sample(train_indices_clean, 10000)
+    n_points <- 10000
+  }
+  
+  # Weights array needs to be full length for loess(), which will subset it internally
+  w <- if (!is.null(w_col)) data[[w_col]] else NULL
   
   # Adjust span for small datasets
   if (n_points < 50) span <- 1.0
@@ -505,16 +514,19 @@ apply_normalization_corrections <- function(targets, pca_data,
     return(targets)
   }
   
-  # Filter to subset
+  # Filter to subset (targets or background)
   ix <- targets$is_target == is_target_bool
   if (!any(ix)) return(targets)
   
-  # Merge with PCA
+  # Merge with PCA metadata
   data <- merge(targets[ix], pca_data, by = "bin", all.x = TRUE)
   data[, lr := get(lr_col)]
   
+  # Identify training indices (backbone)
+  train_mask <- if ("backbone_weight" %in% names(data)) data$backbone_weight > 0 else NULL
+  
   # Apply corrections
-  corrected <- apply_combined_corrections(data, data$is_backbone, correction)
+  corrected <- apply_combined_corrections(data, train_mask, correction)
   
   # Assign back
   data[, corrected_lr := corrected]

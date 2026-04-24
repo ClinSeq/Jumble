@@ -4,7 +4,13 @@
 \alias{annotate_segments}
 \title{Annotate Segments with Cancer Genes and Exons}
 \usage{
-annotate_segments(segments, cancergenes, cancerexons)
+annotate_segments(
+  segments,
+  cancergenes,
+  cancerexons,
+  allgenes = NULL,
+  cytobands = NULL
+)
 }
 \arguments{
 \item{segments}{Processed segments data.table.}
@@ -12,6 +18,10 @@ annotate_segments(segments, cancergenes, cancerexons)
 \item{cancergenes}{Data.table of cancer genes with coordinates.}
 
 \item{cancerexons}{Data.table of cancer exons with coordinates.}
+
+\item{allgenes}{Data.table of all protein-coding genes.}
+
+\item{cytobands}{Data.table of cytoband coordinates.}
 }
 \value{
 The annotated `segments` data.table.

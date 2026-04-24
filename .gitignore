@@ -15,21 +15,23 @@
 *.bam
 *.bai
 
-# Allow package test data
-!inst/testdata/
-!inst/extdata/
-!inst/testdata/**
-!inst/extdata/**
-
 # Validation Outputs
 *.csv
 *.RDS
 *.pdf
 *.png
 
+# Allow package test data
+!inst/testdata/
+!inst/extdata/
+!inst/testdata/**
+!inst/extdata/**
+
 # Internal Development
 local_dev/
 .cursorrules
+AGENTS.md
+.roo/
 
 # Editor
 .vscode/

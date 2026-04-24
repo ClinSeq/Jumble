@@ -2,9 +2,16 @@
 % Please edit documentation in R/run.R
 \name{export_analysis_files}
 \alias{export_analysis_files}
-\title{Export Analysis Files (CNR, CNS, SEG)}
+\title{Export Analysis Files (CNR, CNS, SEG, GENES)}
 \usage{
-export_analysis_files(targets, segments, output_dir, sample_name)
+export_analysis_files(
+  targets,
+  segments,
+  output_dir,
+  sample_name,
+  reference,
+  snp_table
+)
 }
 \arguments{
 \item{targets}{Targets data.table}
@@ -14,8 +21,12 @@ export_analysis_files(targets, segments, output_dir, sample_name)
 \item{output_dir}{Output directory}
 
 \item{sample_name}{Sample name}
+
+\item{reference}{Reference object (needed for annotation)}
+
+\item{snp_table}{SNP table (needed for annotation)}
 }
 \description{
-Export Analysis Files (CNR, CNS, SEG)
+Export Analysis Files (CNR, CNS, SEG, GENES)
 }
 \keyword{internal}

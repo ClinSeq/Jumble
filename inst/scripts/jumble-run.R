@@ -17,15 +17,19 @@ option_list <- list(
     ),
     make_option(c("-v", "--vcf"),
         type = "character", default = NULL,
-        help = "Germline SNP VCF file for GIS/LOH analysis (optional)", metavar = "FILE"
+        help = "VCF file for SNP analysis (optional)", metavar = "FILE"
     ),
     make_option(c("-s", "--somatic"),
         type = "character", default = NULL,
-        help = "Somatic VCF file for mutation overlay on plots (optional)", metavar = "FILE"
+        help = "Somatic VCF file for MSI analysis (optional)", metavar = "FILE"
     ),
     make_option(c("-o", "--output"),
         type = "character", default = NULL,
         help = "Output directory [default: current directory]", metavar = "DIR"
+    ),
+    make_option(c("-m", "--model"),
+        type = "character", default = NULL,
+        help = "HRD model file for GIS Custom HRD scoring (optional)", metavar = "FILE"
     ),
     make_option(c("-a", "--alpha"),
         type = "double", default = 0.001,
@@ -40,7 +44,7 @@ option_list <- list(
 opt_parser <- OptionParser(
     usage = "Usage: %prog [options]",
     option_list = option_list,
-    description = "\nRun Jumble copy number analysis.\n\nExamples:\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -c optim -o output/\n  Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -v germline.vcf.gz -s somatic.vcf.gz"
+    description = "\nRun Jumble copy number analysis.\n\nExamples:\n  Rscript jumble-run.R -r reference.RDS -b sample.bam -c optim -o output/\n  Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz"
 )
 
 opt <- parse_args(opt_parser)
@@ -70,6 +74,10 @@ if (!is.null(opt$somatic) && !file.exists(opt$somatic)) {
     stop("Somatic VCF file not found: ", opt$somatic)
 }
 
+if (!is.null(opt$model) && !file.exists(opt$model)) {
+    warning("HRD Model file not found: ", opt$model)
+}
+
 # Set output directory
 output_dir <- if (!is.null(opt$output)) opt$output else getwd()
 if (!dir.exists(output_dir)) {
@@ -86,6 +94,9 @@ if (!is.null(opt$vcf)) {
 if (!is.null(opt$somatic)) {
     cat("Somatic VCF:", opt$somatic, "\n")
 }
+if (!is.null(opt$model)) {
+    cat("Model:", opt$model, "\n")
+}
 cat("Output:", output_dir, "\n")
 cat("Alpha:", opt$alpha, "\n")
 cat("Correction:", opt$correction, "\n\n")
@@ -98,7 +109,8 @@ result <- run_jumble(
     snp_vcf = opt$vcf,
     somatic_vcf = opt$somatic,
     alpha = opt$alpha,
-    correction = opt$correction
+    correction = opt$correction,
+    hrd_model_file = opt$model
 )
 
 cat("\n✓ Analysis complete\n")
@@ -106,8 +118,7 @@ cat("  - Segments:", nrow(result$segments), "\n")
 cat("  - X chromosome segments:", sum(result$segments$chromosome == "X", na.rm = TRUE), "\n")
 
 # List output files
-sample_name <- sub("\\.(counts\\.RDS|bam)$", "", basename(opt$bam))
-output_files <- list.files(output_dir, pattern = sample_name, full.names = FALSE)
+output_files <- list.files(output_dir, pattern = basename(tools::file_path_sans_ext(opt$bam)), full.names = FALSE)
 cat("\nOutput files:\n")
 for (f in output_files) {
     cat("  -", f, "\n")

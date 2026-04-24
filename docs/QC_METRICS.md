@@ -1,92 +1,139 @@
 # Quality Control Metrics
 
 ## Overview
-Jumble generates a QC CSV file for each sample. The file always contains 18 columns in a fixed order. Columns that require optional inputs (SNP VCF, somatic VCF) are filled with NA when those inputs are not provided.
+Jumble automatically generates quality control (QC) metrics for each sample analysis, saved as a CSV file.
 
 ## QC Output File
 
-**Filename**: `<sample_name>.qc.csv`
+**Filename**: `<sample_name>.qc.csv`  
 **Format**: CSV with header row and one data row per sample
 
-## Column Reference
+## QC Metrics (21 columns)
 
-### Identity
-| Column | Description |
-|--------|-------------|
-| `sample` | Sample name |
+| # | Column | Description |
+|---|--------|-------------|
+| 1 | `sample` | Sample name |
+| 2 | `bam_file` | Input BAM or counts file (basename) |
+| 3 | `reference_file` | Reference file used (basename) |
+| 4 | `snp_vcf` | SNP VCF file if provided (basename), otherwise NA |
+| 5 | `somatic_vcf` | Somatic VCF file if provided (basename), otherwise NA |
+| 6 | `median_target_count` | Median fragment count across target bins |
+| 7 | `gc_bias` | Log2 ratio of high-GC to low-GC bin counts (see below) |
+| 8 | `noise` | Normalized noise metric (MAD of log2 ratios) |
+| 9 | `waviness` | Large-scale systematic bias metric |
+| 10 | `het_snps` | Number of heterozygous SNPs detected |
+| 11 | `hom_snps` | Number of homozygous SNPs detected |
+| 12 | `sex` | Inferred sex (M/F) from chrX heterozygosity |
+| 13 | `contamination` | Estimated sample contamination level |
+| 14 | `somatic_snvs` | Number of somatic SNVs (from somatic VCF) |
+| 15 | `somatic_indels` | Number of somatic indels (from somatic VCF) |
+| 16 | `MSI_mono` | Count of MSI-like indels in mononucleotide repeats |
+| 17 | `MSI_di` | Count of MSI-like indels in dinucleotide repeats |
+| 18 | `MSI_tri` | Count of MSI-like indels in trinucleotide repeats |
+| 19 | `TMB_snv` | Tumor Mutational Burden — SNV count per Mb (somatic SNVs only) |
+| 20 | `TMB_indel` | Tumor Mutational Burden — indel count per Mb (somatic indels only) |
+| 21 | `TMB_score` | Tumor Mutational Burden — combined SNV + indel count per Mb |
 
-### Input Files
-| Column | Description |
-|--------|-------------|
-| `bam_file` | BAM or counts file (basename) |
-| `reference_file` | Reference panel file (basename) |
-| `snp_vcf` | Germline SNP VCF (basename), NA if not provided |
-| `somatic_vcf` | Somatic VCF (basename), NA if not provided |
+Columns 4–5 and 10–21 are `NA` when the corresponding VCF input is not provided.
 
-### Technical QC (always computed from counts)
-| Column | Description | Interpretation |
-|--------|-------------|----------------|
-| `median_target_count` | Median fragment count across target bins | Proxy for sequencing depth |
-| `gc_bias` | log2(high-GC / low-GC coverage) | 0 = no bias; positive = high-GC enriched |
-| `noise` | Linear MAPD (bin-to-bin noise) | Lower is better |
-| `waviness` | 1Mb-window smoothed coverage SD | Large-scale variability |
-
-### Computed Estimates (require VCF inputs)
-| Column | Requires | Description |
-|--------|----------|-------------|
-| `het_snps` | SNP VCF | Count of heterozygous germline SNPs |
-| `hom_snps` | SNP VCF | Count of homozygous germline SNPs |
-| `sex` | SNP VCF | Inferred chromosomal sex (`male`/`female`/NA) |
-| `contamination` | SNP VCF | Estimated cross-contamination fraction |
-| `somatic_snvs` | Somatic VCF | Count of somatic SNVs |
-| `somatic_indels` | Somatic VCF | Count of somatic indels |
-| `MSI_mono` | Somatic VCF | Indels in mononucleotide repeat tracts |
-| `MSI_di` | Somatic VCF | Indels in dinucleotide repeat tracts |
-| `MSI_tri` | Somatic VCF | Indels in trinucleotide repeat tracts |
-| `TMB_snv` | Somatic VCF | Tumour Mutational Burden: somatic SNV count (footprint-masked) |
-| `TMB_indel` | Somatic VCF | Tumour Mutational Burden: somatic indel count (footprint-masked) |
-| `TMB_score` | Somatic VCF | TMB estimate per Mb with Poisson 95% CI (e.g. `8.3 (6.1-11.0)`) |
+### GC Content Bias
+- **gc_bias**: `log2(mean_high_gc_count / mean_low_gc_count)`
+  - High-GC: bins with GC content 0.5–0.6
+  - Low-GC: bins with GC content 0.3–0.4
+  - Interpretation:
+    - **0**: No GC bias (ideal)
+    - **Positive**: High-GC bins have more fragments
+    - **Negative**: Low-GC bins have more fragments
+    - **Typical range**: -0.5 to +0.5
 
 ## Example Output
 
 ```csv
-sample,bam_file,reference_file,snp_vcf,somatic_vcf,median_target_count,gc_bias,noise,waviness,het_snps,hom_snps,sex,contamination,somatic_snvs,somatic_indels,MSI_mono,MSI_di,MSI_tri,TMB_snv,TMB_indel,TMB_score
-SampleA,sample.counts.RDS,reference.RDS,germline.vcf.gz,somatic.vcf,2140,2.7,0.29,0.13,4541,150,"female",,536,329,260,8,3,420,25,"8.3 (6.1-11.0)"
+"sample","bam_file","reference_file","snp_vcf","somatic_vcf","median_target_count","gc_bias","noise","waviness","het_snps","hom_snps","sex","contamination","somatic_snvs","somatic_indels","MSI_mono","MSI_di","MSI_tri","TMB_snv","TMB_indel","TMB_score"
+"SampleA","sample.counts.RDS","reference.RDS","sample.vcf.gz",NA,1947,0.24,0.31,0.08,4356,2102,"F",0.01,142,18,5,2,1,3.2,0.4,3.6
 ```
-
 
 ## Interpreting QC Metrics
 
-### Technical QC Thresholds
+### Fragment Count
+- **Median target count**: Typical coverage depth
+  - Gene panel: 500–5000 fragments/bin typical
+  - WGS: 10–100 fragments/bin typical
+  - Low values may indicate poor sequencing quality
+
+### GC Bias
+- **Ideal**: Close to 0 (no bias)
+- **Acceptable**: -0.3 to +0.3
+- **Concerning**: > |0.5|
+- **Causes**: PCR amplification bias, library preparation issues
+- **Impact**: May affect copy number calling accuracy
+
+### Sex Inference
+- Inferred from chrX heterozygosity vs autosomal rate
+- Pseudoautosomal regions are excluded from the calculation
+- Useful for detecting sample swaps
+
+### MSI Metrics
+- Based on indel classification in repeat tracts from the somatic VCF
+- `MSI_mono`, `MSI_di`, `MSI_tri` count MSI-like indels by repeat type
+- High `MSI_mono` counts are indicative of microsatellite instability
+
+### Tumor Mutational Burden (TMB)
+- Computed from the somatic VCF (requires `somatic_vcf` input)
+- Only variants with allele frequency ≥ 0.05 are counted
+- Normalised to mutations per megabase (Mb) using the callable target region size
+- `TMB_snv`: SNV burden (substitutions only)
+- `TMB_indel`: Indel burden (insertions and deletions only)
+- `TMB_score`: Combined SNV + indel burden (the standard reported TMB)
+- Typical thresholds: TMB-High ≥ 10 mut/Mb (tumour-type dependent)
+
+## Using QC Metrics
+
+### In R
+```r
+# Read QC metrics
+qc <- read.csv("sample.qc.csv")
+
+# Check GC bias
+if (abs(qc$gc_bias) > 0.5) {
+    warning("High GC bias detected: ", qc$gc_bias)
+}
+
+# Check coverage
+if (qc$median_target_count < 500) {
+    warning("Low coverage: ", qc$median_target_count)
+}
+```
+
+### Batch Analysis
+```r
+# Collect QC from multiple samples
+qc_files <- list.files(pattern = "\\.qc\\.csv$")
+qc_data <- do.call(rbind, lapply(qc_files, read.csv))
+
+# Summary statistics
+summary(qc_data$gc_bias)
+summary(qc_data$median_target_count)
+
+# Plot QC metrics
+library(ggplot2)
+ggplot(qc_data, aes(x = median_target_count, y = gc_bias)) +
+    geom_point() +
+    labs(title = "QC Metrics Overview")
+```
+
+## QC Thresholds (Suggested)
 
 | Metric | Good | Acceptable | Poor |
 |--------|------|------------|------|
 | **GC Bias** | \|x\| < 0.2 | \|x\| < 0.5 | \|x\| ≥ 0.5 |
-| **Noise (MAPD)** | < 0.15 | < 0.30 | ≥ 0.30 |
 | **Median Count (Panel)** | > 1000 | > 500 | < 500 |
 | **Median Count (WGS)** | > 50 | > 20 | < 20 |
-
-### Sex Inference
-Inferred from chrX heterozygosity relative to autosomal rate, excluding pseudoautosomal regions (PAR1/PAR2). Returns `male` if ratio < 1%, `female` if ratio > 5%, or NA if ambiguous or fewer than 100 chrX target bins.
-
-### Het/Hom SNP Thresholds
-A SNP is classified as heterozygous if: minor allele depth ≥ 2 AND minor allele ratio ≥ 1%.
-
-## Usage
-
-### Batch Analysis
-```r
-# Aggregate QC from multiple samples
-qc_files <- list.files(pattern = "\\.qc\\.csv$", recursive = TRUE)
-qc_data <- do.call(rbind, lapply(qc_files, data.table::fread))
-
-summary(qc_data$noise)
-summary(qc_data$gc_bias)
-table(qc_data$sex)
-```
 
 ## Automatic Generation
 
 QC metrics are automatically generated by:
 - `run_jumble()` function
 - `jumble-run.R` command-line script
+
+No additional configuration required.
