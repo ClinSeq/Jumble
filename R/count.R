@@ -177,7 +177,8 @@ create_target_bins <- function(raw_targets) {
 
 #' Create Background (Antitarget) Bins
 #' @keywords internal
-#' @importFrom GenomicRanges makeGRangesFromDataFrame reduce gaps start<- end<- width 
+#' @importFrom GenomicRanges makeGRangesFromDataFrame reduce gaps start<- end<- width trim
+#' @importFrom IRanges trim
 #' @importFrom GenomeInfoDb seqlevels<- seqlengths<-
 #' @importFrom data.table data.table rbindlist
 create_background_bins <- function(raw_targets, chromlength) {
@@ -205,7 +206,8 @@ create_background_bins <- function(raw_targets, chromlength) {
   # Must set seqinfo for gaps() to work on the whole genome
   gr_base <- gr_base[as.character(seqnames(gr_base)) %in% names(chromlength)]
   seqlevels(gr_base) <- names(chromlength)
-  seqlengths(gr_base) <- chromlength
+  suppressWarnings(seqlengths(gr_base) <- chromlength)
+  gr_base <- IRanges::trim(gr_base)
   
   gr_bg <- gaps(gr_base)
   gr_bg <- gr_bg[GenomicRanges::strand(gr_bg) == "*"]
