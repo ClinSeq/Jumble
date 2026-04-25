@@ -4,10 +4,14 @@
 \alias{reconstruct_targets_from_reference}
 \title{Reconstruct Targets from Reference Counts}
 \usage{
-reconstruct_targets_from_reference(reference)
+reconstruct_targets_from_reference(reference, exclude_long_fragments = FALSE)
 }
 \arguments{
 \item{reference}{Reference object with allcounts and target_template}
+
+\item{exclude_long_fragments}{If TRUE, use count_medium (≤300bp) instead of
+count (all fragments) as the main depth signal. Excludes long fragments
+that may be affected by TLEN inflation in clipoverlap BAMs.}
 }
 \value{
 data.table with reconstructed targets from all reference samples

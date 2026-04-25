@@ -14,6 +14,7 @@ run_jumble(
   genome = NULL,
   correction = "optim",
   hrd_model_file = NULL,
+  exclude_long_fragments = FALSE,
   ...
 )
 }
@@ -35,6 +36,11 @@ run_jumble(
 \item{correction}{String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).}
 
 \item{hrd_model_file}{Optional path to a custom HRD model object (e.g. randomForest, glm, or function) saved as an RDS file. When supplied, a supplementary Custom HRD score is added to GIS output.}
+
+\item{exclude_long_fragments}{If TRUE, use count_medium (fragments ≤300bp)
+instead of count (all fragments) as the main depth signal. Set to TRUE when
+using clipoverlap BAMs where the midpoint calculation may be affected by
+TLEN inflation from overlap clipping.}
 
 \item{...}{Additional arguments.}
 }

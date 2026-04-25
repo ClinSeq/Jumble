@@ -4,10 +4,13 @@
 \alias{compute_reference_pca}
 \title{Compute Reference PCA (Refactored)}
 \usage{
-compute_reference_pca(reference)
+compute_reference_pca(reference, exclude_long_fragments = FALSE)
 }
 \arguments{
 \item{reference}{The reference object.}
+
+\item{exclude_long_fragments}{If TRUE, use count_medium (≤300bp) instead of
+count (all fragments) as the main depth signal.}
 }
 \value{
 A list containing PCA results for targets and background.

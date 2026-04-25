@@ -4,7 +4,7 @@
 \alias{prepare_targets}
 \title{Prepare Targets Data Table}
 \usage{
-prepare_targets(reference, counts, bam_file)
+prepare_targets(reference, counts, bam_file, exclude_long_fragments = FALSE)
 }
 \arguments{
 \item{reference}{Reference object}
@@ -12,6 +12,9 @@ prepare_targets(reference, counts, bam_file)
 \item{counts}{Counts object}
 
 \item{bam_file}{BAM file path}
+
+\item{exclude_long_fragments}{If TRUE, use count_medium (≤300bp) instead of
+count (all fragments) as the main depth signal.}
 }
 \value{
 Targets data.table
