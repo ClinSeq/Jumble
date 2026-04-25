@@ -94,6 +94,11 @@ generate_counts_from_bam <- function(bam_file, reference, output_dir) {
                                              mapq = 20, filteredFlag = flag, tlenFilter = c(0, 150),
                                              verbose = FALSE
   )
+  counts$count_medium <- bamsignals::bamCount(bam_file, reference$ranges,
+                                              paired.end = "midpoint",
+                                              mapq = 20, filteredFlag = flag, tlenFilter = c(0, 300),
+                                              verbose = FALSE
+  )
   
   # Save counts
   saveRDS(counts, file.path(output_dir, paste0(
@@ -108,15 +113,22 @@ generate_counts_from_bam <- function(bam_file, reference, output_dir) {
 #' @param reference Reference object
 #' @param counts Counts object
 #' @param bam_file BAM file path
+#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#'   count (all fragments) as the main depth signal.
 #' @return Targets data.table
 #' @keywords internal
-prepare_targets <- function(reference, counts, bam_file) {
+prepare_targets <- function(reference, counts, bam_file, exclude_long_fragments = FALSE) {
   targets <- data.table::copy(reference$target_template)
   targets[, chromosome := clean_chrom_names(chromosome)]
   
   sample_name <- basename(bam_file)
   targets[, sample := sample_name]
-  targets[, count := counts$count]
+  
+  if (exclude_long_fragments && !is.null(counts$count_medium)) {
+    targets[, count := counts$count_medium]
+  } else {
+    targets[, count := counts$count]
+  }
   targets[, count_short := counts$count_short]
   
   if (!is.null(counts$count_all)) {
@@ -774,14 +786,19 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 #' @param genome Genome version.
 #' @param correction String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).
 #' @param hrd_model_file Optional path to a custom HRD model object (e.g. randomForest, glm, or function) saved as an RDS file. When supplied, a supplementary Custom HRD score is added to GIS output.
+#' @param exclude_long_fragments If TRUE, use count_medium (fragments ≤300bp)
+#'   instead of count (all fragments) as the main depth signal. Set to TRUE when
+#'   using clipoverlap BAMs where the midpoint calculation may be affected by
+#'   TLEN inflation from overlap clipping.
 #' @param ... Additional arguments.
 #' @return A list containing results (targets, segments, etc.).
 #' @importFrom data.table fread fwrite
 #' @importFrom ggplot2 ggsave
 #' @export
 run_jumble <- function(bam_file, reference_file, output_dir = ".",
-                       snp_vcf = NULL, somatic_vcf = NULL, cores = 1, 
-                       genome = NULL, correction = "optim", hrd_model_file = NULL, ...) {
+                       snp_vcf = NULL, somatic_vcf = NULL, cores = 1,
+                       genome = NULL, correction = "optim", hrd_model_file = NULL,
+                       exclude_long_fragments = FALSE, ...) {
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   
   hrd_model <- NULL
@@ -821,12 +838,16 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
     }
   }
 
+  if (exclude_long_fragments) {
+    message("Using count_medium (≤300bp fragments) as main depth signal.")
+  }
+  
   # 4. Reference PCA
   message("Computing reference PCA...")
-  ref_pca <- compute_reference_pca(reference)
-  
-  # 4. Prepare Targets
-  targets <- prepare_targets(reference, counts, bam_file)
+  ref_pca <- compute_reference_pca(reference, exclude_long_fragments = exclude_long_fragments)
+
+  # 5. Prepare Targets
+  targets <- prepare_targets(reference, counts, bam_file, exclude_long_fragments = exclude_long_fragments)
   
   # 5. Add Annotations
   targets <- add_gene_annotations(targets, reference)

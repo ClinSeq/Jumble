@@ -3,9 +3,12 @@
 #' Rebuilds target data.table from reference allcounts and template
 #'
 #' @param reference Reference object with allcounts and target_template
+#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#'   count (all fragments) as the main depth signal. Excludes long fragments
+#'   that may be affected by TLEN inflation in clipoverlap BAMs.
 #' @return data.table with reconstructed targets from all reference samples
 #' @keywords internal
-reconstruct_targets_from_reference <- function(reference) {
+reconstruct_targets_from_reference <- function(reference, exclude_long_fragments = FALSE) {
   allcounts <- reference$allcounts
   target_template <- reference$target_template
   
@@ -14,7 +17,12 @@ reconstruct_targets_from_reference <- function(reference) {
     counts <- allcounts[[i]]
     t <- data.table::copy(target_template)
     t[, sample := paste0("ref_", i)]
-    t[, count := counts$count]
+    
+    if (exclude_long_fragments && !is.null(counts$count_medium)) {
+      t[, count := counts$count_medium]
+    } else {
+      t[, count := counts$count]
+    }
     t[, count_short := counts$count_short]
     
     targetlist[[i]] <- t
@@ -604,13 +612,15 @@ cleanup_temp_columns <- function(targets, cols_to_remove) {
 #' Performs PCA on reference dataset to identify latent features for normalization.
 #'
 #' @param reference The reference object.
+#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#'   count (all fragments) as the main depth signal.
 #' @return A list containing PCA results for targets and background.
 #' @importFrom stats prcomp sd
 #' @importFrom data.table dcast as.data.table setorder
 #' @keywords internal
-compute_reference_pca <- function(reference) {
+compute_reference_pca <- function(reference, exclude_long_fragments = FALSE) {
   # 1. Reconstruct and define backbone
-  targets <- reconstruct_targets_from_reference(reference)
+  targets <- reconstruct_targets_from_reference(reference, exclude_long_fragments = exclude_long_fragments)
   if ("chromosome" %in% names(targets)) {
     targets[, chromosome := clean_chrom_names(chromosome)]
   }
