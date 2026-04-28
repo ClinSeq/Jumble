@@ -27,7 +27,7 @@ Imports:
     MASS,
     patchwork,
     optparse,
-    PSCBS,
+    DNAcopy,
     Rsamtools,
     stringr,
     VariantAnnotation,

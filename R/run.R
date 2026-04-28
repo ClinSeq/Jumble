@@ -318,7 +318,7 @@ apply_x_chromosome_correction <- function(targets, is_wgs) {
 perform_segmentation <- function(targets, reference, alltargets) {
   message("Segmenting...")
   
-  alpha <- 0.02
+  alpha <- 0.01
   if (reference$target_bed_file == "wgs") alpha <- 1e-5
   
   cancergenes <- if (!is.null(reference$cancergenes_clinseq)) {

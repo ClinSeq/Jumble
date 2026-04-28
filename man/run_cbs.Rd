@@ -4,18 +4,23 @@
 \alias{run_cbs}
 \title{Run Circular Binary Segmentation (CBS)}
 \usage{
-run_cbs(targets, alpha)
+run_cbs(targets, alpha, trim = 0.05)
 }
 \arguments{
 \item{targets}{Normalized targets data.table.}
 
-\item{alpha}{Significance level for segmentation.}
+\item{alpha}{Significance level for segmentation (default: 0.01).}
+
+\item{trim}{Fraction of extreme observations to trim when computing
+segment means in DNAcopy (default: 0.05).}
 }
 \value{
 A list containing the `segments` data.table and the sorted `targets` data.table.
 }
 \description{
-Prepares the target data by standardizing chromosome names, sorting, 
-and running the PSCBS segmentation algorithm.
+Prepares the target data by standardizing chromosome names, sorting,
+and running DNAcopy CBS with smooth.CNA preprocessing for robust
+segmentation. The smooth.CNA step removes single-bin outliers before
+CBS, improving detection of focal deletions.
 }
 \keyword{internal}
