@@ -37,3 +37,6 @@ AGENTS.md
 .vscode/
 /doc/
 /Meta/
+
+# Always ignore macOS metadata (must be after !inst negations so last-match wins)
+**/.DS_Store
