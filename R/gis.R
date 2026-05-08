@@ -1,6 +1,33 @@
 #' GIS Model
 #'
-#' Hard-coded prediction function for Genomic Instability Score (GIS).
+#' Hard-coded linear prediction function for Genomic Instability Score (GIS).
+#'
+#' @details
+#' The GIS score is predicted from three genomic instability features using a
+#' linear model with hard-coded coefficients:
+#'
+#' \deqn{GIS = 2.632 + (-0.852 \times focal\_gain) + (1.799 \times local\_cnv) + (2.727 \times loh)}
+#'
+#' The coefficients were derived from a training set of samples with known HRD
+#' status (Myriad myChoice GIS scores). The model uses only three of the nine
+#' available features:
+#'
+#' \itemize{
+#'   \item \strong{loh} (coefficient 2.727): Strongest predictor. Loss of
+#'     heterozygosity is a hallmark of homologous recombination deficiency.
+#'   \item \strong{local_cnv} (coefficient 1.799): Captures arm-level copy
+#'     number changes characteristic of HRD genomes.
+#'   \item \strong{focal_gain} (coefficient -0.852): Negative coefficient.
+#'     Focal gains are more characteristic of non-HRD tumors (e.g., oncogene
+#'     amplification) and thus reduce the predicted GIS.
+#' }
+#'
+#' When called with \code{feats = NULL}, returns the coefficient list for
+#' inspection. Users who wish to use a different model (e.g., randomForest
+#' trained on their own cohort) can supply it via the \code{hrd_model_file}
+#' parameter in \code{\link{run_jumble}}.
+#'
+#' See also \code{docs/METHODS.md} Section 6.7 for full details.
 #'
 #' @param feats List or data.table containing features: focal_gain, local_cnv, loh.
 #' @return Predicted GIS score.
@@ -31,6 +58,36 @@ gis_model <- function(feats = NULL) {
 #' Compute GIS Table
 #'
 #' Computes GIS scores across a range of purity fractions.
+#'
+#' @details
+#' This function orchestrates the full Genomic Instability Score computation.
+#' The algorithm operates through a multi-scale binning pipeline:
+#'
+#' \strong{1. 1 Mb Binning:} Target-level data is aggregated into 1 Mb bins
+#' by taking the median log2 and MAF per bin. Values are then re-averaged by
+#' segment ID to use the segmented (smoothed) signal rather than raw bin
+#' values.
+#'
+#' \strong{2. 5 Mb Binning:} A genome-wide 5 Mb bin template is constructed
+#' from chromosome arm definitions (centromeric bins excluded). The 1 Mb
+#' values are mapped to 5 Mb bins via genomic overlap, taking the median per
+#' bin. Bins must have both log2 AND MAF data to be included.
+#'
+#' \strong{3. Arm-level and long-range statistics:} Per-arm median log2 and
+#' a 25 Mb running median (k=5 bins of 5 Mb) are computed as baselines for
+#' feature extraction.
+#'
+#' \strong{4. Tumor fraction sweep:} Nine genomic instability features are
+#' computed at each of 100 assumed tumor fractions (0.01 to 1.00), producing
+#' a GIS score profile. This allows identification of the most likely tumor
+#' fraction and assessment of GIS sensitivity to purity uncertainty.
+#'
+#' The multi-scale approach ensures that GIS features capture arm-level and
+#' sub-arm-level events rather than bin-level noise, making the scoring
+#' applicable to both sparse gene panel data and dense WGS data.
+#'
+#' See also \code{\link{comp_gis_for_fraction}} for per-fraction feature
+#' computation and \code{docs/METHODS.md} Section 6 for the full description.
 #'
 #' @param targets Data.table of target bins (must have segment, log2, chromosome, start, end).
 #' @param snps Data.table of SNPs (must have chromosome, start, end, allele_ratio).
@@ -240,7 +297,54 @@ get_chrom_arms <- function(genome = "hg19") {
     return(chroms)
 }
 
-#' Helper to compute GIS for a single fraction
+#' Compute GIS Features for a Single Tumor Fraction
+#'
+#' Computes nine genomic instability features and the predicted GIS score
+#' for a single assumed tumor fraction.
+#'
+#' @details
+#' All feature thresholds are scaled by the assumed tumor fraction:
+#' \code{threshold = max(tumor_fraction / 3, 0.05)} and
+#' \code{threshold_log2 = log2(1 + threshold)}. This ensures that at low
+#' tumor fractions, thresholds are relaxed to detect diluted signals.
+#'
+#' \strong{Nine features are computed:}
+#'
+#' \emph{Copy number features} (counted as number of distinct chromosome arms):
+#' \itemize{
+#'   \item \strong{transitions}: 5 Mb bins where |Δlog2| > threshold between
+#'     adjacent bins (sum of bins, not arms).
+#'   \item \strong{long_cnv}: Arms where the 25 Mb running median deviates
+#'     from the arm median by > threshold_log2.
+#'   \item \strong{local_cnv}: Arms with any bin showing local gain OR loss.
+#'   \item \strong{local_gain / local_loss}: Arms with bins deviating from
+#'     arm median by > threshold_log2.
+#'   \item \strong{focal_gain / focal_loss}: Arms with bins deviating from
+#'     BOTH the long-range median AND the arm median. This dual requirement
+#'     distinguishes true focal events from arm-level shifts.
+#' }
+#'
+#' \emph{Allele-based features:}
+#' \itemize{
+#'   \item \strong{loh}: Arms with > 3 bins showing LOH AND > 3 bins without
+#'     LOH (partial LOH). LOH is called using a purity-aware threshold:
+#'     \code{copyratio = 1 + (2^log2 - 1) / tfr}, then
+#'     \code{dnaratio = copyratio * tfr / (copyratio * tfr + 1 * (1 - tfr))},
+#'     and \code{thr_maf = max(0.5 + dnaratio * 0.8 * 0.5, 0.55)}.
+#'     A bin is LOH if MAF > thr_maf. LOH calls are smoothed with a running
+#'     median (k=5 = 25 Mb) per arm.
+#'   \item \strong{tai}: Arms with allelic imbalance (smoothed MAF > 0.6) at
+#'     a telomeric bin.
+#' }
+#'
+#' See \code{docs/METHODS.md} Sections 6.3–6.6 for mathematical details.
+#'
+#' @param bins_in Data.table of 5 Mb bins with log2, maf, arm, chromosome,
+#'   telomeric, arm_median, and long_median columns.
+#' @param tfr Numeric tumor fraction (0 to 1).
+#' @param hrd_model Optional custom HRD model object.
+#' @return Named list with fraction, 9 feature counts, predicted_gis, and
+#'   optionally custom_HRD.
 #' @keywords internal
 comp_gis_for_fraction <- function(bins_in, tfr, hrd_model = NULL) {
     # Work on a copy

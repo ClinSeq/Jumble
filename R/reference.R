@@ -173,6 +173,7 @@ create_target_template <- function(counts1, is_wgs, allcounts) {
   for (i in seq_along(allcounts)) {
     if (!is.null(allcounts[[i]]$count)) allcounts[[i]]$count <- allcounts[[i]]$count[ordering]
     if (!is.null(allcounts[[i]]$count_short)) allcounts[[i]]$count_short <- allcounts[[i]]$count_short[ordering]
+    if (!is.null(allcounts[[i]]$count_medium)) allcounts[[i]]$count_medium <- allcounts[[i]]$count_medium[ordering]
     allcounts[[i]]$ranges <- allcounts[[i]]$ranges[ordering]
   }
   

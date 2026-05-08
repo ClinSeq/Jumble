@@ -38,6 +38,10 @@ option_list <- list(
     make_option(c("-c", "--correction"),
         type = "character", default = "optim",
         help = "Correction method to use: 'optim' (L1+TV, default) or 'rlm' (Robust LM)", metavar = "METHOD"
+    ),
+    make_option("--exclude-long-fragments",
+        action = "store_true", default = FALSE,
+        help = "Exclude long fragments (>300bp) from depth signal, using only fragments ≤300bp. Recommended for clipoverlap BAMs."
     )
 )
 
@@ -99,7 +103,11 @@ if (!is.null(opt$model)) {
 }
 cat("Output:", output_dir, "\n")
 cat("Alpha:", opt$alpha, "\n")
-cat("Correction:", opt$correction, "\n\n")
+cat("Correction:", opt$correction, "\n")
+if (opt$exclude_long_fragments) {
+    cat("Fragment length filter: excluding >300bp\n")
+}
+cat("\n")
 
 # Run Jumble
 result <- run_jumble(
@@ -110,7 +118,8 @@ result <- run_jumble(
     somatic_vcf = opt$somatic,
     alpha = opt$alpha,
     correction = opt$correction,
-    hrd_model_file = opt$model
+    hrd_model_file = opt$model,
+    exclude_long_fragments = opt$exclude_long_fragments
 )
 
 cat("\n✓ Analysis complete\n")

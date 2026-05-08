@@ -3,9 +3,12 @@
 #' Rebuilds target data.table from reference allcounts and template
 #'
 #' @param reference Reference object with allcounts and target_template
+#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#'   count (all fragments) as the main depth signal. Excludes long fragments
+#'   that may be affected by TLEN inflation in clipoverlap BAMs.
 #' @return data.table with reconstructed targets from all reference samples
 #' @keywords internal
-reconstruct_targets_from_reference <- function(reference) {
+reconstruct_targets_from_reference <- function(reference, exclude_long_fragments = FALSE) {
   allcounts <- reference$allcounts
   target_template <- reference$target_template
   
@@ -14,7 +17,12 @@ reconstruct_targets_from_reference <- function(reference) {
     counts <- allcounts[[i]]
     t <- data.table::copy(target_template)
     t[, sample := paste0("ref_", i)]
-    t[, count := counts$count]
+    
+    if (exclude_long_fragments && !is.null(counts$count_medium)) {
+      t[, count := counts$count_medium]
+    } else {
+      t[, count := counts$count]
+    }
     t[, count_short := counts$count_short]
     
     targetlist[[i]] <- t
@@ -302,7 +310,44 @@ get_bins_by_type <- function(target_template, is_target_bool, valid_bins = NULL)
 
 #' Apply PCA Correction to Values using Optimisation
 #'
-#' L1 + Total Variation penalty optimisation using Nelder-Mead
+#' L1 + Total Variation penalty optimisation using Nelder-Mead.
+#'
+#' @details
+#' This function implements the core normalization innovation in Jumble. Rather
+#' than using standard linear regression (OLS or robust) to remove PCA
+#' components — which assumes Gaussian residuals and can over-correct focal
+#' copy number alterations — this method uses an **L1 norm + Total Variation
+#' (TV) penalty** formulation.
+#'
+#' **Objective function:**
+#'
+#' \deqn{\min_c \sum_i |y_i - (Pc)_i| + \lambda \sum_i |\Delta(y - Pc)_i|}
+#'
+#' where \eqn{y} is the log2 ratio vector, \eqn{P} is the PCA score matrix,
+#' \eqn{c} is the coefficient vector to be optimized, \eqn{\Delta} is the
+#' first-difference operator, and \eqn{\lambda} is the TV penalty ratio
+#' (default 1.0).
+#'
+#' The **L1 norm** (first term) provides robustness to outliers: focal copy
+#' number alterations appear as outliers relative to the PCA model and are
+#' preserved rather than corrected away. In contrast, OLS (L2 norm) would
+#' shrink these signals toward zero.
+#'
+#' The **Total Variation penalty** (second term) penalizes roughness in the
+#' corrected signal, encouraging smooth corrections that respect the spatial
+#' (genomic) structure of the data. This prevents the optimizer from
+#' introducing artificial breakpoints.
+#'
+#' **Progressive coefficient expansion:** The optimization uses Nelder-Mead
+#' (a derivative-free simplex method) and builds coefficients progressively:
+#' (1) start with the first 3 PCs and optimize their coefficients, (2) expand
+#' by 10 PCs at a time using the previous solution as the starting point,
+#' (3) continue until all available PCs are included. This progressive
+#' strategy avoids local minima that can trap the optimizer when starting
+#' with many parameters simultaneously.
+#'
+#' See also \code{docs/METHODS.md} Section 4.6 for the full mathematical
+#' description.
 #'
 #' @param data data.table with 'lr' and PC columns
 #' @param ratio TV penalty ratio (default 1.0 based on benchmarking)
@@ -604,13 +649,15 @@ cleanup_temp_columns <- function(targets, cols_to_remove) {
 #' Performs PCA on reference dataset to identify latent features for normalization.
 #'
 #' @param reference The reference object.
+#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#'   count (all fragments) as the main depth signal.
 #' @return A list containing PCA results for targets and background.
 #' @importFrom stats prcomp sd
 #' @importFrom data.table dcast as.data.table setorder
 #' @keywords internal
-compute_reference_pca <- function(reference) {
+compute_reference_pca <- function(reference, exclude_long_fragments = FALSE) {
   # 1. Reconstruct and define backbone
-  targets <- reconstruct_targets_from_reference(reference)
+  targets <- reconstruct_targets_from_reference(reference, exclude_long_fragments = exclude_long_fragments)
   if ("chromosome" %in% names(targets)) {
     targets[, chromosome := clean_chrom_names(chromosome)]
   }

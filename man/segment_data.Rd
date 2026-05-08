@@ -16,7 +16,7 @@ segment_data(
 \arguments{
 \item{targets}{Normalized targets data.table.}
 
-\item{alpha}{Significance level for segmentation (default: 0.02, or 1e-5 for WGS).}
+\item{alpha}{Significance level for segmentation (default: 0.01, or 1e-5 for WGS).}
 
 \item{allgenes}{Optional data.table of all genes for annotation.}
 
@@ -26,7 +26,8 @@ segment_data(
 A list containing the segment table and the updated targets with segment IDs.
 }
 \description{
-Main wrapper function that performs segmentation on normalized log-ratios using PSCBS,
-assigns mapped segments to targets, and optionally annotates the data.
+Main wrapper function that performs segmentation on normalized log-ratios
+using DNAcopy CBS with smooth.CNA preprocessing, assigns mapped segments
+to targets, and optionally annotates the data.
 }
 \keyword{internal}

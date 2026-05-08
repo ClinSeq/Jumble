@@ -94,6 +94,11 @@ generate_counts_from_bam <- function(bam_file, reference, output_dir) {
                                              mapq = 20, filteredFlag = flag, tlenFilter = c(0, 150),
                                              verbose = FALSE
   )
+  counts$count_medium <- bamsignals::bamCount(bam_file, reference$ranges,
+                                              paired.end = "midpoint",
+                                              mapq = 20, filteredFlag = flag, tlenFilter = c(0, 300),
+                                              verbose = FALSE
+  )
   
   # Save counts
   saveRDS(counts, file.path(output_dir, paste0(
@@ -108,15 +113,22 @@ generate_counts_from_bam <- function(bam_file, reference, output_dir) {
 #' @param reference Reference object
 #' @param counts Counts object
 #' @param bam_file BAM file path
+#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#'   count (all fragments) as the main depth signal.
 #' @return Targets data.table
 #' @keywords internal
-prepare_targets <- function(reference, counts, bam_file) {
+prepare_targets <- function(reference, counts, bam_file, exclude_long_fragments = FALSE) {
   targets <- data.table::copy(reference$target_template)
   targets[, chromosome := clean_chrom_names(chromosome)]
   
   sample_name <- basename(bam_file)
   targets[, sample := sample_name]
-  targets[, count := counts$count]
+  
+  if (exclude_long_fragments && !is.null(counts$count_medium)) {
+    targets[, count := counts$count_medium]
+  } else {
+    targets[, count := counts$count]
+  }
   targets[, count_short := counts$count_short]
   
   if (!is.null(counts$count_all)) {
@@ -306,7 +318,7 @@ apply_x_chromosome_correction <- function(targets, is_wgs) {
 perform_segmentation <- function(targets, reference, alltargets) {
   message("Segmenting...")
   
-  alpha <- 0.02
+  alpha <- 0.01
   if (reference$target_bed_file == "wgs") alpha <- 1e-5
   
   cancergenes <- if (!is.null(reference$cancergenes_clinseq)) {
@@ -342,6 +354,39 @@ perform_segmentation <- function(targets, reference, alltargets) {
 }
 
 #' Compute GIS and Add MAF to Targets
+#'
+#' Orchestrates GIS computation and maps allele frequency data back to
+#' target bins, including local SNP background estimation for somatic
+#' variant filtering.
+#'
+#' @details
+#' This function performs three tasks:
+#'
+#' \strong{1. GIS computation:} Delegates to \code{\link{compute_gis_table}}
+#' for the full tumor-fraction-sweep GIS scoring.
+#'
+#' \strong{2. MAF mapping:} Maps minor allele frequency (MAF) from germline
+#' SNPs to target bins via genomic overlap. Also maps the 5 Mb-scale
+#' \code{long_median} from the GIS binning back to target bins using
+#' nearest-neighbor matching.
+#'
+#' \strong{3. Local SNP background estimation:} Computes a per-bin
+#' \code{local_snp_bg} value representing the expected germline MAF in the
+#' neighborhood of each bin. This is used downstream for rare germline SNP
+#' rejection in TMB estimation (see \code{docs/METHODS.md} Section 8.3).
+#'
+#' The local SNP background is computed in two steps:
+#' \itemize{
+#'   \item \emph{Within-segment smoothing:} MAF values are smoothed with a
+#'     running median (k=9) within each CBS segment, then linearly
+#'     interpolated to fill gaps.
+#'   \item \emph{Cross-segment extrapolation:} Segments without any germline
+#'     SNP data inherit the background MAF from the nearest adjacent segment
+#'     with data, weighted by log2 ratio similarity. Segments at similar copy
+#'     number states are preferred because they are more likely to share LOH
+#'     status. If no adjacent segments have data, a default of 0.5 (no
+#'     imbalance) is used.
+#' }
 #'
 #' @param targets Targets data.table
 #' @param snp_table SNP data.table
@@ -774,14 +819,19 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 #' @param genome Genome version.
 #' @param correction String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).
 #' @param hrd_model_file Optional path to a custom HRD model object (e.g. randomForest, glm, or function) saved as an RDS file. When supplied, a supplementary Custom HRD score is added to GIS output.
+#' @param exclude_long_fragments If TRUE, use count_medium (fragments ≤300bp)
+#'   instead of count (all fragments) as the main depth signal. Set to TRUE when
+#'   using clipoverlap BAMs where the midpoint calculation may be affected by
+#'   TLEN inflation from overlap clipping.
 #' @param ... Additional arguments.
 #' @return A list containing results (targets, segments, etc.).
 #' @importFrom data.table fread fwrite
 #' @importFrom ggplot2 ggsave
 #' @export
 run_jumble <- function(bam_file, reference_file, output_dir = ".",
-                       snp_vcf = NULL, somatic_vcf = NULL, cores = 1, 
-                       genome = NULL, correction = "optim", hrd_model_file = NULL, ...) {
+                       snp_vcf = NULL, somatic_vcf = NULL, cores = 1,
+                       genome = NULL, correction = "optim", hrd_model_file = NULL,
+                       exclude_long_fragments = FALSE, ...) {
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   
   hrd_model <- NULL
@@ -821,12 +871,16 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
     }
   }
 
+  if (exclude_long_fragments) {
+    message("Using count_medium (≤300bp fragments) as main depth signal.")
+  }
+  
   # 4. Reference PCA
   message("Computing reference PCA...")
-  ref_pca <- compute_reference_pca(reference)
-  
-  # 4. Prepare Targets
-  targets <- prepare_targets(reference, counts, bam_file)
+  ref_pca <- compute_reference_pca(reference, exclude_long_fragments = exclude_long_fragments)
+
+  # 5. Prepare Targets
+  targets <- prepare_targets(reference, counts, bam_file, exclude_long_fragments = exclude_long_fragments)
   
   # 5. Add Annotations
   targets <- add_gene_annotations(targets, reference)

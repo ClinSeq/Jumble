@@ -1,3 +1,22 @@
+# Jumble 0.5.3
+
+*   **Segmentation Engine**: Switched from PSCBS to DNAcopy CBS with `smooth.CNA`
+    preprocessing. The smoothing step removes single-bin outliers before
+    segmentation, improving detection of focal deletions. Added `trim` parameter
+    (default 0.05) for robust segment mean estimation.
+*   **Fragment Length Filtering**: New `exclude_long_fragments` parameter in
+    `run_jumble()` and CLI. When TRUE, uses `count_medium` (fragments ≤300 bp)
+    instead of all fragments as the main depth signal — designed for clipoverlap
+    BAMs where TLEN inflation can misplace long-fragment midpoints.
+*   **Methods Documentation**: Added comprehensive algorithmic methods document
+    (`docs/METHODS.md`) covering the full normalization pipeline, GIS/HRD feature
+    computation, MSI classification, and TMB estimation. Enhanced roxygen
+    documentation for key functions (`correct_by_optim`, `gis_model`,
+    `compute_gis_table`, `comp_gis_for_fraction`, `compute_gis_and_maf`).
+*   **README**: Added Methods Overview section, citation block, and link to
+    METHODS.md.
+*   **DESCRIPTION**: Added URL field with GitHub repository and preprint DOI.
+
 # Jumble 0.5.2
 
 *   **Leave-Me-Out Guard**: Fixed crash when query sample matches all reference

@@ -1,50 +1,61 @@
 #' Run Circular Binary Segmentation (CBS)
 #'
-#' Prepares the target data by standardizing chromosome names, sorting, 
-#' and running the PSCBS segmentation algorithm.
+#' Prepares the target data by standardizing chromosome names, sorting,
+#' and running DNAcopy CBS with smooth.CNA preprocessing for robust
+#' segmentation. The smooth.CNA step removes single-bin outliers before
+#' CBS, improving detection of focal deletions.
 #'
 #' @param targets Normalized targets data.table.
-#' @param alpha Significance level for segmentation.
+#' @param alpha Significance level for segmentation (default: 0.01).
+#' @param trim Fraction of extreme observations to trim when computing
+#'   segment means in DNAcopy (default: 0.05).
 #' @return A list containing the `segments` data.table and the sorted `targets` data.table.
-#' @importFrom PSCBS segmentByCBS
+#' @importFrom DNAcopy CNA smooth.CNA segment
 #' @importFrom data.table as.data.table :=
 #' @keywords internal
-run_cbs <- function(targets, alpha) {
+run_cbs <- function(targets, alpha, trim = 0.05) {
   # Copy to avoid mutating caller's data.table by reference
-  # data.table::copy is not always sufficient if list columns exist, but for basic columns
-  # avoiding `:=` on the immediate argument is key. We create a strict new data.table.
   targets <- data.table::as.data.table(targets)
   targets <- data.table::copy(targets)
-  
-  # Standardize and sort for PSCBS
-  # Avoid mutating the original 'chromosome' column type by reference
+
+  # Standardize and sort
   targets$chromosome <- as.character(targets$chromosome)
   targets[chromosome == "X", chromosome := "23"]
   targets[chromosome == "Y", chromosome := "24"]
   targets$chromosome <- as.numeric(targets$chromosome)
-  
-  # Note: This ordering creates a new data.table, breaking reference semantics
+
+  # Sort by chromosome and position
   targets <- targets[order(chromosome, start)]
-  
-  fit <- segmentByCBS(
-    y = targets$log2,
-    chromosome = targets$chromosome,
-    alpha = alpha,
-    undo = 1,
-    verbose = FALSE
+
+  # DNAcopy CBS with smooth.CNA preprocessing
+  cna_obj <- DNAcopy::CNA(
+    targets$log2,
+    chrom = targets$chromosome,
+    maploc = seq_len(nrow(targets)),
+    data.type = "logratio"
   )
-  
-  segments <- as.data.table(fit$output)
-  
+  cna_smooth <- DNAcopy::smooth.CNA(cna_obj)
+  seg_result <- DNAcopy::segment(cna_smooth, alpha = alpha, trim = trim, verbose = 0)
+
+  segments <- data.table::as.data.table(seg_result$output)
+  # DNAcopy output columns: chrom, loc.start, loc.end, num.mark, seg.mean
+  # Rename to match expected format: chromosome, start, end, nbrOfLoci, mean
+  data.table::setnames(segments,
+    c("chrom", "loc.start", "loc.end", "num.mark", "seg.mean"),
+    c("chromosome", "start", "end", "nbrOfLoci", "mean")
+  )
+  # Drop the ID column that DNAcopy adds
+  if ("ID" %in% names(segments)) segments[, ID := NULL]
+
   # Convert numeric representations back to character X/Y
   segments[, chromosome := as.character(chromosome)]
   segments[chromosome == "23", chromosome := "X"]
   segments[chromosome == "24", chromosome := "Y"]
-  
+
   targets[, chromosome := as.character(chromosome)]
   targets[chromosome == "23", chromosome := "X"]
   targets[chromosome == "24", chromosome := "Y"]
-  
+
   return(list(segments = segments, targets = targets))
 }
 
@@ -234,17 +245,18 @@ annotate_segments <- function(segments, cancergenes, cancerexons, allgenes = NUL
 
 #' Segment Data
 #'
-#' Main wrapper function that performs segmentation on normalized log-ratios using PSCBS,
-#' assigns mapped segments to targets, and optionally annotates the data.
+#' Main wrapper function that performs segmentation on normalized log-ratios
+#' using DNAcopy CBS with smooth.CNA preprocessing, assigns mapped segments
+#' to targets, and optionally annotates the data.
 #'
 #' @param targets Normalized targets data.table.
-#' @param alpha Significance level for segmentation (default: 0.02, or 1e-5 for WGS).
+#' @param alpha Significance level for segmentation (default: 0.01, or 1e-5 for WGS).
 #' @param allgenes Optional data.table of all genes for annotation.
 #' @param cytobands Optional data.table of cytobands.
 #' @return A list containing the segment table and the updated targets with segment IDs.
 #' @keywords internal
 segment_data <- function(targets, alpha = NULL, cancergenes = NULL, cancerexons = NULL, allgenes = NULL, cytobands = NULL) {
-  if (is.null(alpha)) alpha <- 0.02
+  if (is.null(alpha)) alpha <- 0.01
   
   # 1. Run CBS Segmentation
   cbs_results <- run_cbs(targets, alpha)
