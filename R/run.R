@@ -355,6 +355,39 @@ perform_segmentation <- function(targets, reference, alltargets) {
 
 #' Compute GIS and Add MAF to Targets
 #'
+#' Orchestrates GIS computation and maps allele frequency data back to
+#' target bins, including local SNP background estimation for somatic
+#' variant filtering.
+#'
+#' @details
+#' This function performs three tasks:
+#'
+#' \strong{1. GIS computation:} Delegates to \code{\link{compute_gis_table}}
+#' for the full tumor-fraction-sweep GIS scoring.
+#'
+#' \strong{2. MAF mapping:} Maps minor allele frequency (MAF) from germline
+#' SNPs to target bins via genomic overlap. Also maps the 5 Mb-scale
+#' \code{long_median} from the GIS binning back to target bins using
+#' nearest-neighbor matching.
+#'
+#' \strong{3. Local SNP background estimation:} Computes a per-bin
+#' \code{local_snp_bg} value representing the expected germline MAF in the
+#' neighborhood of each bin. This is used downstream for rare germline SNP
+#' rejection in TMB estimation (see \code{docs/METHODS.md} Section 8.3).
+#'
+#' The local SNP background is computed in two steps:
+#' \itemize{
+#'   \item \emph{Within-segment smoothing:} MAF values are smoothed with a
+#'     running median (k=9) within each CBS segment, then linearly
+#'     interpolated to fill gaps.
+#'   \item \emph{Cross-segment extrapolation:} Segments without any germline
+#'     SNP data inherit the background MAF from the nearest adjacent segment
+#'     with data, weighted by log2 ratio similarity. Segments at similar copy
+#'     number states are preferred because they are more likely to share LOH
+#'     status. If no adjacent segments have data, a default of 0.5 (no
+#'     imbalance) is used.
+#' }
+#'
 #' @param targets Targets data.table
 #' @param snp_table SNP data.table
 #' @param reference Reference object

@@ -5,18 +5,18 @@
 Jumble is an R package for copy number analysis, offering functions for counting reads, building reference panels, and calling copy number alterations (CNA). It supports both Targeted Sequencing (gene panels) and Whole Genome Sequencing (WGS).
 
 *   **[NEWS](NEWS.md)**: Changelog and version history.
+*   **[Methods](docs/METHODS.md)**: Detailed algorithmic methods documentation.
 
-
-# Prototype
-
-This package is a re-implementation of legacy Jumble R-scripts. It is currently in a prototype state and may not be stable. It may also be incomplete. Use at your own risk.
-
+> **Citation**: Mayrhofer, M. et al. "Sensitive detection of copy number alterations in samples with low circulating tumor DNA fraction." *MedRxiv* (2024). [doi:10.1101/2024.05.04.24306860](https://www.medrxiv.org/content/10.1101/2024.05.04.24306860v1)
 
 
 ## Features
 
 *   **Copy Number Calling**: Segmented copy number plotting and calling.
 *   **Genomic Instability Score (GIS)**: Calculation and visualization (`.gis.png`).
+*   **MSI Classification**: Microsatellite instability calling from somatic VCFs.
+*   **TMB Estimation**: Tumor mutational burden with rare germline SNP rejection.
+*   **Custom HRD Models**: Support for user-supplied HRD classification models.
 *   **Pipeline Ready**: Includes command-line wrapper scripts for easy integration into Nextflow/Snakemake pipelines.
 
 

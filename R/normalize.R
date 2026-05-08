@@ -310,7 +310,44 @@ get_bins_by_type <- function(target_template, is_target_bool, valid_bins = NULL)
 
 #' Apply PCA Correction to Values using Optimisation
 #'
-#' L1 + Total Variation penalty optimisation using Nelder-Mead
+#' L1 + Total Variation penalty optimisation using Nelder-Mead.
+#'
+#' @details
+#' This function implements the core normalization innovation in Jumble. Rather
+#' than using standard linear regression (OLS or robust) to remove PCA
+#' components — which assumes Gaussian residuals and can over-correct focal
+#' copy number alterations — this method uses an **L1 norm + Total Variation
+#' (TV) penalty** formulation.
+#'
+#' **Objective function:**
+#'
+#' \deqn{\min_c \sum_i |y_i - (Pc)_i| + \lambda \sum_i |\Delta(y - Pc)_i|}
+#'
+#' where \eqn{y} is the log2 ratio vector, \eqn{P} is the PCA score matrix,
+#' \eqn{c} is the coefficient vector to be optimized, \eqn{\Delta} is the
+#' first-difference operator, and \eqn{\lambda} is the TV penalty ratio
+#' (default 1.0).
+#'
+#' The **L1 norm** (first term) provides robustness to outliers: focal copy
+#' number alterations appear as outliers relative to the PCA model and are
+#' preserved rather than corrected away. In contrast, OLS (L2 norm) would
+#' shrink these signals toward zero.
+#'
+#' The **Total Variation penalty** (second term) penalizes roughness in the
+#' corrected signal, encouraging smooth corrections that respect the spatial
+#' (genomic) structure of the data. This prevents the optimizer from
+#' introducing artificial breakpoints.
+#'
+#' **Progressive coefficient expansion:** The optimization uses Nelder-Mead
+#' (a derivative-free simplex method) and builds coefficients progressively:
+#' (1) start with the first 3 PCs and optimize their coefficients, (2) expand
+#' by 10 PCs at a time using the previous solution as the starting point,
+#' (3) continue until all available PCs are included. This progressive
+#' strategy avoids local minima that can trap the optimizer when starting
+#' with many parameters simultaneously.
+#'
+#' See also \code{docs/METHODS.md} Section 4.6 for the full mathematical
+#' description.
 #'
 #' @param data data.table with 'lr' and PC columns
 #' @param ratio TV penalty ratio (default 1.0 based on benchmarking)
