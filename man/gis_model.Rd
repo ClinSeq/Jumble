@@ -13,6 +13,33 @@ gis_model(feats = NULL)
 Predicted GIS score.
 }
 \description{
-Hard-coded prediction function for Genomic Instability Score (GIS).
+Hard-coded linear prediction function for Genomic Instability Score (GIS).
+}
+\details{
+The GIS score is predicted from three genomic instability features using a
+linear model with hard-coded coefficients:
+
+\deqn{GIS = 2.632 + (-0.852 \times focal\_gain) + (1.799 \times local\_cnv) + (2.727 \times loh)}
+
+The coefficients were derived from a training set of samples with known HRD
+status (Myriad myChoice GIS scores). The model uses only three of the nine
+available features:
+
+\itemize{
+  \item \strong{loh} (coefficient 2.727): Strongest predictor. Loss of
+    heterozygosity is a hallmark of homologous recombination deficiency.
+  \item \strong{local_cnv} (coefficient 1.799): Captures arm-level copy
+    number changes characteristic of HRD genomes.
+  \item \strong{focal_gain} (coefficient -0.852): Negative coefficient.
+    Focal gains are more characteristic of non-HRD tumors (e.g., oncogene
+    amplification) and thus reduce the predicted GIS.
+}
+
+When called with \code{feats = NULL}, returns the coefficient list for
+inspection. Users who wish to use a different model (e.g., randomForest
+trained on their own cohort) can supply it via the \code{hrd_model_file}
+parameter in \code{\link{run_jumble}}.
+
+See also \code{docs/METHODS.md} Section 6.7 for full details.
 }
 \keyword{internal}

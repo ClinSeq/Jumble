@@ -7,12 +7,31 @@
 estimate_contamination(snp_table)
 }
 \arguments{
-\item{snp_table}{A data.table containing SNP data, including 'allele_ratio'.}
+\item{snp_table}{A data.table from \code{process_snps()}, containing at minimum:
+\code{chromosome}, \code{start}, \code{allele_ratio}, \code{DP}, \code{AD}, \code{RD}.}
 }
 \value{
-A numeric value representing the estimated contamination fraction (0 to 1).
+A numeric value in [0, 1] representing the estimated contamination fraction,
+  or \code{NA_real_} if estimation is not possible.
 }
 \description{
-Estimates the level of DNA contamination in a sample based on SNP allele ratios.
+Estimates the level of DNA contamination in a sample using a Random Forest
+model trained on hom-alt SNP VAF histograms. The algorithm:
+}
+\details{
+\enumerate{
+  \item Selects homozygous-alt SNPs (allele_ratio > 0.75, DP >= 20)
+  \item Applies 5 Mb balanced-region selection (top 10\% windows by het count)
+  \item Builds a 10-bin log-spaced VAF histogram (75-100\%)
+  \item Predicts contamination fraction using a pre-trained Random Forest
+}
+
+Returns \code{NA_real_} when:
+\itemize{
+  \item Input is NULL or empty
+  \item Fewer than 50 hom-alt SNPs with DP >= 20 (e.g., hom SNPs filtered from VCF)
+  \item The \pkg{randomForest} package is not installed
+  \item The pre-trained model file is missing
+}
 }
 \keyword{internal}

@@ -946,7 +946,7 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   }
   
   # 10. Compute QC Metrics
-  contamination <- if (!is.null(snp_table)) {
+  contamination <- if (!is.null(snp_table) && !is_wgs) {
     estimate_contamination(snp_table)
   } else {
     NA_real_

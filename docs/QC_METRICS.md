@@ -73,6 +73,16 @@ Columns 4–5 and 10–21 are `NA` when the corresponding VCF input is not provi
 - Pseudoautosomal regions are excluded from the calculation
 - Useful for detecting sample swaps
 
+### Contamination
+- Estimated DNA contamination fraction (0 to 1) from germline SNP allele ratios
+- Uses a Random Forest model trained on hom-alt SNP VAF histograms (see [METHODS.md](METHODS.md#95-contamination))
+- Requires a germline SNP VCF (`snp_vcf` parameter); `NA` when no VCF is provided
+- Only computed for panel data; returns `NA` for WGS
+- Returns `NA` when fewer than 50 homozygous-alt SNPs are available
+- Requires the `randomForest` package (listed in Suggests)
+- **Typical values**: < 0.01 for clean samples; > 0.05 may indicate significant contamination
+- **Interpretation**: The value represents the estimated fraction of reads from a foreign DNA source
+
 ### MSI Metrics
 - Based on indel classification in repeat tracts from the somatic VCF
 - `MSI_mono`, `MSI_di`, `MSI_tri` count MSI-like indels by repeat type

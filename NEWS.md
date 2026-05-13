@@ -1,3 +1,14 @@
+# Jumble 0.5.4
+
+*   **Contamination Estimation**: Restored `estimate_contamination()` with a
+    Random Forest model trained on 259 HRD-2024 germline panel VCFs. Uses
+    hom-alt SNP VAF histogram (10 log-spaced bins, 75-100%) with 5 Mb
+    balanced-region selection. Runs automatically when a SNP VCF is provided
+    (panel data only; returns NA for WGS or when hom-alt SNPs are absent).
+    Hyperparameters tuned by 5-fold CV; held-out test evaluation uses
+    split-specific contaminant pools to prevent information leakage.
+    Model exported as compact 5.8 MB RDS (100 trees, nodesize=20, xz compression).
+
 # Jumble 0.5.3
 
 *   **Segmentation Engine**: Switched from PSCBS to DNAcopy CBS with `smooth.CNA`

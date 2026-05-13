@@ -29,4 +29,34 @@ Data.table with fraction, predicted_gis, and feature counts.
 \description{
 Computes GIS scores across a range of purity fractions.
 }
+\details{
+This function orchestrates the full Genomic Instability Score computation.
+The algorithm operates through a multi-scale binning pipeline:
+
+\strong{1. 1 Mb Binning:} Target-level data is aggregated into 1 Mb bins
+by taking the median log2 and MAF per bin. Values are then re-averaged by
+segment ID to use the segmented (smoothed) signal rather than raw bin
+values.
+
+\strong{2. 5 Mb Binning:} A genome-wide 5 Mb bin template is constructed
+from chromosome arm definitions (centromeric bins excluded). The 1 Mb
+values are mapped to 5 Mb bins via genomic overlap, taking the median per
+bin. Bins must have both log2 AND MAF data to be included.
+
+\strong{3. Arm-level and long-range statistics:} Per-arm median log2 and
+a 25 Mb running median (k=5 bins of 5 Mb) are computed as baselines for
+feature extraction.
+
+\strong{4. Tumor fraction sweep:} Nine genomic instability features are
+computed at each of 100 assumed tumor fractions (0.01 to 1.00), producing
+a GIS score profile. This allows identification of the most likely tumor
+fraction and assessment of GIS sensitivity to purity uncertainty.
+
+The multi-scale approach ensures that GIS features capture arm-level and
+sub-arm-level events rather than bin-level noise, making the scoring
+applicable to both sparse gene panel data and dense WGS data.
+
+See also \code{\link{comp_gis_for_fraction}} for per-fraction feature
+computation and \code{docs/METHODS.md} Section 6 for the full description.
+}
 \keyword{internal}

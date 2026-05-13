@@ -2,11 +2,61 @@
 % Please edit documentation in R/gis.R
 \name{comp_gis_for_fraction}
 \alias{comp_gis_for_fraction}
-\title{Helper to compute GIS for a single fraction}
+\title{Compute GIS Features for a Single Tumor Fraction}
 \usage{
 comp_gis_for_fraction(bins_in, tfr, hrd_model = NULL)
 }
+\arguments{
+\item{bins_in}{Data.table of 5 Mb bins with log2, maf, arm, chromosome,
+telomeric, arm_median, and long_median columns.}
+
+\item{tfr}{Numeric tumor fraction (0 to 1).}
+
+\item{hrd_model}{Optional custom HRD model object.}
+}
+\value{
+Named list with fraction, 9 feature counts, predicted_gis, and
+  optionally custom_HRD.
+}
 \description{
-Helper to compute GIS for a single fraction
+Computes nine genomic instability features and the predicted GIS score
+for a single assumed tumor fraction.
+}
+\details{
+All feature thresholds are scaled by the assumed tumor fraction:
+\code{threshold = max(tumor_fraction / 3, 0.05)} and
+\code{threshold_log2 = log2(1 + threshold)}. This ensures that at low
+tumor fractions, thresholds are relaxed to detect diluted signals.
+
+\strong{Nine features are computed:}
+
+\emph{Copy number features} (counted as number of distinct chromosome arms):
+\itemize{
+  \item \strong{transitions}: 5 Mb bins where |Δlog2| > threshold between
+    adjacent bins (sum of bins, not arms).
+  \item \strong{long_cnv}: Arms where the 25 Mb running median deviates
+    from the arm median by > threshold_log2.
+  \item \strong{local_cnv}: Arms with any bin showing local gain OR loss.
+  \item \strong{local_gain / local_loss}: Arms with bins deviating from
+    arm median by > threshold_log2.
+  \item \strong{focal_gain / focal_loss}: Arms with bins deviating from
+    BOTH the long-range median AND the arm median. This dual requirement
+    distinguishes true focal events from arm-level shifts.
+}
+
+\emph{Allele-based features:}
+\itemize{
+  \item \strong{loh}: Arms with > 3 bins showing LOH AND > 3 bins without
+    LOH (partial LOH). LOH is called using a purity-aware threshold:
+    \code{copyratio = 1 + (2^log2 - 1) / tfr}, then
+    \code{dnaratio = copyratio * tfr / (copyratio * tfr + 1 * (1 - tfr))},
+    and \code{thr_maf = max(0.5 + dnaratio * 0.8 * 0.5, 0.55)}.
+    A bin is LOH if MAF > thr_maf. LOH calls are smoothed with a running
+    median (k=5 = 25 Mb) per arm.
+  \item \strong{tai}: Arms with allelic imbalance (smoothed MAF > 0.6) at
+    a telomeric bin.
+}
+
+See \code{docs/METHODS.md} Sections 6.3–6.6 for mathematical details.
 }
 \keyword{internal}

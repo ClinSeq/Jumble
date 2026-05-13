@@ -24,6 +24,7 @@ devtools::test()
 - ✅ QC metrics (21 columns)
 - ✅ MSI classification
 - ✅ GIS/HRD scoring
+- ✅ Contamination estimation (RF model loading, feature extraction, edge cases)
 
 ---
 
