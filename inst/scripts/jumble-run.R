@@ -104,7 +104,7 @@ if (!is.null(opt$model)) {
 cat("Output:", output_dir, "\n")
 cat("Alpha:", opt$alpha, "\n")
 cat("Correction:", opt$correction, "\n")
-if (opt$exclude_long_fragments) {
+if (isTRUE(opt[["exclude-long-fragments"]])) {
     cat("Fragment length filter: excluding >300bp\n")
 }
 cat("\n")
@@ -119,7 +119,7 @@ result <- run_jumble(
     alpha = opt$alpha,
     correction = opt$correction,
     hrd_model_file = opt$model,
-    exclude_long_fragments = opt$exclude_long_fragments
+    exclude_long_fragments = isTRUE(opt[["exclude-long-fragments"]])
 )
 
 cat("\n✓ Analysis complete\n")
