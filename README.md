@@ -14,6 +14,7 @@ Jumble is an R package for copy number analysis, offering functions for counting
 
 *   **Copy Number Calling**: Segmented copy number plotting and calling.
 *   **Genomic Instability Score (GIS)**: Calculation and visualization (`.gis.png`).
+*   **Contamination Estimation**: Automatic DNA contamination detection from germline SNP allele ratios using a Random Forest model.
 *   **MSI Classification**: Microsatellite instability calling from somatic VCFs.
 *   **TMB Estimation**: Tumor mutational burden with rare germline SNP rejection.
 *   **Custom HRD Models**: Support for user-supplied HRD classification models.

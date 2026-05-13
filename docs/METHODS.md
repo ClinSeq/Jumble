@@ -452,7 +452,43 @@ Otherwise: ambiguous (NA)
 
 ### 9.5 Contamination
 
-The contamination estimation algorithm is currently retired (returns NA) pending further development.
+Jumble estimates DNA contamination from germline SNP allele ratios using a
+Random Forest model. The algorithm runs automatically when a SNP VCF is
+provided and the assay is panel-based (not WGS). It returns `NA` when
+homozygous-alt SNPs are absent (e.g., filtered from the VCF), when fewer
+than 50 qualifying SNPs remain, or for WGS data.
+
+**Algorithm:**
+
+1. **Hom-alt SNP selection.** SNPs with `allele_ratio > 0.75` and `DP >= 20`
+   are selected as the analysis set. These are expected to be homozygous-alt
+   in a clean sample; contamination shifts their VAF below 100%.
+
+2. **5 Mb balanced-region selection.** Each SNP is assigned to a 5 Mb genomic
+   window. Windows are ranked by the number of heterozygous-like SNPs
+   (`MAF < 0.6`), and the top 10% are selected. This enriches for diploid
+   (copy-number neutral) regions where allele ratios are most informative.
+
+3. **Log-spaced VAF histogram.** The VAF distribution of selected hom-alt SNPs
+   is summarized into 10 bins with boundaries at 75, 83, 88, 92, 95, 97, 98,
+   99, 99.5, 99.8, and 100%. The log-spacing provides fine resolution near
+   100% where low-level contamination produces subtle shifts.
+
+4. **Feature vector.** 12 features are computed: 10 VAF bin fractions plus
+   `mean_DP` and `sd_DP` of the selected SNPs.
+
+5. **Random Forest prediction.** A pre-trained RF model (`inst/extdata/contamination_rf.RDS`)
+   predicts the contamination fraction. The result is clamped to [0, 1].
+
+**Training:** The model was trained on 259 HRD-2024 germline panel VCFs using
+in silico contamination simulation. For each of ~200 clean base samples
+(predicted contamination < 0.5%), 5 contaminants were drawn from a
+split-specific pool (no overlap between training and held-out test samples).
+Per sample×contaminant pair, 150 simulations were generated: 10 at
+contamination = 0 and 140 with contamination drawn from a log-uniform
+distribution over [0.05%, 50%]. Hyperparameters (`mtry`, `ntree`) were
+selected by 5-fold cross-validation (folds split by sample to prevent
+data leakage). Held-out test performance is reported in the training QMD.
 
 ---
 
