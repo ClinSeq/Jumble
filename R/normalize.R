@@ -550,12 +550,11 @@ apply_combined_corrections <- function(data, train_indices = NULL, correction = 
 #' @param correction String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)
 #' @return Modified targets with output_col updated
 #' @keywords internal
-apply_normalization_corrections <- function(targets, pca_data, 
-                                           lr_col, output_col, 
+apply_normalization_corrections <- function(targets, pca_data,
+                                           lr_col, output_col,
                                            is_target_bool,
                                            correction = "optim") {
   if (is.null(pca_data)) {
-    targets[[output_col]] <- targets[[lr_col]]
     return(targets)
   }
   
