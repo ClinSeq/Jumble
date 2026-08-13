@@ -23,11 +23,12 @@ Jumble is an R package for copy number analysis, offering functions for counting
 
 ## Installation
 
-You can install the development version of Jumble from GitHub (once hosted) or locally:
-
 ```r
-# Install from local source
-devtools::install(".")
+# Install from GitHub
+devtools::install_github("ClinSeq/Jumble")
+
+# Or install from a local clone
+devtools::install("/path/to/Jumble")
 ```
 
 ## Usage Workflow
@@ -123,6 +124,22 @@ Rscript $(Rscript -e 'cat(system.file("scripts", "jumble-frankenplot.R", package
   --somatic-vcf somatic_mutations.vcf.gz \
   --hrdtable jumble_results/tumor_sample.jumble_gis.csv
 ```
+
+## Output Files
+
+`run_jumble()` generates the following files in `output_dir`:
+
+| File | Format | Description |
+|------|--------|-------------|
+| `<sample>.jumble.csv` | CSV | Bin-level targets with log2 ratios and counts |
+| `<sample>.jumble_snps.csv` | CSV | SNP allele ratios (requires SNP VCF) |
+| `<sample>.jumble_gis.csv` | CSV | GIS arm-level scores (requires SNP VCF) |
+| `<sample>.qc.csv` | CSV | QC metrics (18 columns, see [QC_METRICS.md](docs/QC_METRICS.md)) |
+| `<sample>.cnr` | TSV | CNVkit-compatible bin-level file |
+| `<sample>.cns` | TSV | CNVkit-compatible segment file |
+| `<sample>.seg` | TSV | IGV/GISTIC segment file |
+| `<sample>.jumble.png` | PNG | Copy number plot |
+| `<sample>.msi.png` | PNG | MSI VAF plot (requires somatic VCF) |
 
 ## Quick Verification (Internal Test Data)
 To verify your installation using the small dataset included in the package:
