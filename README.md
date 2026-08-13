@@ -85,13 +85,44 @@ print(head(results$segments))
 print(head(results$targets))
 ```
 
+### 4. Generate Frankenplot Report (Optional)
+Create an interactive HTML genome report from Jumble output files. GIS/HRD curves
+are displayed when a precomputed Jumble GIS table is supplied with `hrdtable`.
+
+```r
+gis_table <- data.table::fread("jumble_results/tumor_sample.jumble_gis.csv")
+
+frankenplot(
+  tumor_jumble_csv = "jumble_results/tumor_sample.jumble.csv",
+  tumor_cns = "jumble_results/tumor_sample.cns",
+  output_file = "tumor_sample_frankenplot.html",
+  tumor_snp_vcf = "germline_snps.vcf.gz",       # Optional: SNP allele ratios
+  somatic_vcf = "somatic_mutations.vcf.gz",      # Optional: somatic overlay
+  germline_vcf = "germline_mutations.vcf.gz",    # Optional: germline overlay
+  hrdtable = gis_table                           # Optional: GIS/HRD curves
+)
+```
+
 ### Command Line Interface
 Jumble also includes wrapper scripts for pipeline integration:
 *   `jumble-count.R`: Generate counts from BAM.
 *   `jumble-reference.R`: Build a reference panel.
 *   `jumble-run.R`: Run the full analysis.
+*   `jumble-frankenplot.R`: Generate a Frankenplot HTML report from Jumble output files.
 
 Find script locations with: `system.file("scripts", package = "Jumble")`
+
+Example Frankenplot wrapper call:
+
+```sh
+Rscript $(Rscript -e 'cat(system.file("scripts", "jumble-frankenplot.R", package = "Jumble"))') \
+  --jumble-csv jumble_results/tumor_sample.jumble.csv \
+  --cns jumble_results/tumor_sample.cns \
+  --output tumor_sample_frankenplot.html \
+  --tumor-snp-vcf germline_snps.vcf.gz \
+  --somatic-vcf somatic_mutations.vcf.gz \
+  --hrdtable jumble_results/tumor_sample.jumble_gis.csv
+```
 
 ## Quick Verification (Internal Test Data)
 To verify your installation using the small dataset included in the package:
@@ -103,4 +134,3 @@ sample_file <- file.path(testdata_dir, "gene_panel/samples/test_sample_1.counts.
 
 results <- run_jumble(sample_file, ref_file, output_dir = "test_run")
 ```
-

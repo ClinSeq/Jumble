@@ -1,3 +1,9 @@
+# Jumble 0.5.5
+
+*   **Frankenplot HTML Reports**: Added the standalone `frankenplot()` function
+    for interactive HTML genome reports from Jumble output files and 
+    `inst/scripts/jumble-frankenplot.R` for pipeline use.
+
 # Jumble 0.5.4
 
 *   **Contamination Estimation**: Restored `estimate_contamination()` with a
