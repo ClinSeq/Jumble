@@ -56,22 +56,45 @@ filter_bins_by_coverage <- function(targets) {
   if (!"count" %in% names(targets)) return(targets)
   if (!"is_target" %in% names(targets)) return(targets)
   if (sum(targets$is_target == TRUE) == 0) return(targets)
-  
-  # Low coverage threshold
-  threshold_low <- median(targets[is_target == TRUE]$count, na.rm = TRUE) * 0.01
-  if (is.finite(threshold_low)) {
-    keep_bins_low <- targets[, .(m = median(count, na.rm = TRUE)), by = bin][m > threshold_low]$bin
-    targets <- targets[bin %in% keep_bins_low]
+
+  keep_bins <- integer()
+
+  for (is_target_value in c(TRUE, FALSE)) {
+    subset <- targets[is_target == is_target_value]
+    if (nrow(subset) == 0) next
+
+    bin_medians <- subset[, .(m = median(count, na.rm = TRUE)), by = bin]
+    group_median <- median(bin_medians$m, na.rm = TRUE)
+    if (!is.finite(group_median)) next
+
+    # Low coverage threshold (10% of within-group median — removes noisy bins)
+    threshold_low <- group_median * 0.10
+    if (is.finite(threshold_low)) {
+      bin_medians <- bin_medians[m > threshold_low]
+    }
+
+    # High coverage threshold (20x within-group median)
+    threshold_high <- group_median / 0.05
+    if (is.finite(threshold_high)) {
+      bin_medians <- bin_medians[m < threshold_high]
+    }
+
+    keep_group_bins <- bin_medians$bin
+
+    # Variance filter: remove bins with SD > 3x median SD across reference samples
+    # (only applicable when multiple samples are present, i.e. during reference PCA)
+    if ("sample" %in% names(subset)) {
+      bin_sd <- subset[bin %in% keep_group_bins, .(sd_count = sd(count, na.rm = TRUE)), by = bin]
+      median_sd <- median(bin_sd$sd_count, na.rm = TRUE)
+      if (is.finite(median_sd) && median_sd > 0) {
+        keep_group_bins <- bin_sd[sd_count <= 3 * median_sd]$bin
+      }
+    }
+
+    keep_bins <- c(keep_bins, keep_group_bins)
   }
-  
-  # High coverage threshold
-  threshold_high <- median(targets[is_target == TRUE]$count, na.rm = TRUE) / 0.05
-  if (is.finite(threshold_high)) {
-    keep_bins_high <- targets[, .(m = median(count, na.rm = TRUE)), by = bin][m < threshold_high]$bin
-    targets <- targets[bin %in% keep_bins_high]
-  }
-  
-  targets
+
+  targets[bin %in% keep_bins]
 }
 
 #' Calculate Log Ratio
@@ -550,12 +573,11 @@ apply_combined_corrections <- function(data, train_indices = NULL, correction = 
 #' @param correction String indicating the method: "optim" (L1+TV) or "rlm" (Robust LM)
 #' @return Modified targets with output_col updated
 #' @keywords internal
-apply_normalization_corrections <- function(targets, pca_data, 
-                                           lr_col, output_col, 
+apply_normalization_corrections <- function(targets, pca_data,
+                                           lr_col, output_col,
                                            is_target_bool,
                                            correction = "optim") {
   if (is.null(pca_data)) {
-    targets[[output_col]] <- targets[[lr_col]]
     return(targets)
   }
   

@@ -231,6 +231,14 @@ prepare_cancergenes_summary <- function(targets) {
 #' @return Modified targets with allele_ratio, DP, and maf columns
 #' @keywords internal
 prepare_snp_data <- function(snp_table, targets) {
+  targets[, allele_ratio := as.double(NA)]
+  targets[, DP := as.double(NA)]
+  targets[, maf := as.double(NA)]
+
+  if (is.null(snp_table) || nrow(snp_table) == 0) {
+    return(targets)
+  }
+
   # Prepare allele ratio column
   snp_table[, allele_ratio_use := allele_ratio]
   if (!is.null(snp_table$allele_ratio_corrected2)) {
@@ -246,9 +254,6 @@ prepare_snp_data <- function(snp_table, targets) {
   snp_table <- snp_table[DP > median_dp / 5][DP < median_dp * 10]
   
   # Map to targets
-  targets[, allele_ratio := as.double(NA)]
-  targets[, DP := as.double(NA)]
-  
   idx <- match(targets$bin, snp_table$bin)
   targets[
     !is.na(idx),
@@ -679,7 +684,8 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
                              somatic_plot, somatic_labels, yaxis_params, theme_params) {
   p <- list()
   
-  # Calculate depth limits
+  # Calculate depth limits. SNP VCFs provide DP; somatic-only runs use target
+  # fragment counts as the x-axis background for mutation overlays.
   valid_dp <- targets[!is.na(DP)]$DP
   if (length(valid_dp) > 0) {
     m <- quantile(valid_dp, c(.01, .50, .99), na.rm = TRUE)
@@ -700,20 +706,20 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     xlab("Depth") +
     ylab("Allele ratio") +
     geom_point(
-      data = targets[type != "background" & is.na(selected_genes)],
+      data = targets[type != "background" & !is.na(DP) & !is.na(allele_ratio) & is.na(selected_genes)],
       mapping = aes(x = DP, y = allele_ratio),
       fill = "#606060", col = "#202020",
       shape = 21, size = 1, alpha = theme_params$alpha / 2
     ) +
     geom_point(
-      data = targets[type != "background" & !is.na(selected_genes)],
+      data = targets[type != "background" & !is.na(DP) & !is.na(allele_ratio) & !is.na(selected_genes)],
       mapping = aes(x = DP, y = allele_ratio, fill = selected_genes),
       col = "black", shape = 21, size = theme_params$size_selected, alpha = 0.8
     ) +
     (if (!is.null(somatic_plot) && nrow(somatic_plot) > 0) {
       geom_point(
         data = somatic_plot,
-        mapping = aes(x = DP, y = AF, shape = var_type),
+        mapping = aes(x = count, y = AF, shape = var_type),
         col = "red", fill = "red", size = theme_params$size_selected, alpha = 0.8
       )
     }) +
@@ -724,7 +730,7 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     (if (!is.null(somatic_labels) && nrow(somatic_labels) > 0) {
       ggrepel::geom_label_repel(
         data = somatic_labels,
-        mapping = aes(x = DP, y = AF, label = label),
+        mapping = aes(x = count, y = AF, label = label),
         fill = "white", col = "darkred", segment.color = "red",
         nudge_y = somatic_labels$nudge,
         size = 2.5, show.legend = FALSE, min.segment.length = 0,
@@ -751,7 +757,7 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
     xlab("Corrected depth (smooth)") +
     ylab("Major Allele Ratio") +
     geom_point(
-      data = targets[, .(smooth_log2, maf)],
+      data = targets[!is.na(smooth_log2) & !is.na(maf), .(smooth_log2, maf)],
       aes(x = 2^smooth_log2, y = maf), col = "lightgrey", alpha = .2
     ) +
     geom_text(
@@ -759,13 +765,13 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
       mapping = aes(x = .25, y = .95, label = chromosome)
     ) +
     geom_point(
-      data = targets[label != "background" & is.na(selected_genes)],
+      data = targets[label != "background" & !is.na(smooth_log2) & !is.na(maf) & is.na(selected_genes)],
       aes(x = 2^smooth_log2, y = maf),
       fill = "#606060", col = "#202020", shape = 21, 
       size = theme_params$size, alpha = theme_params$alpha
     ) +
     geom_point(
-      data = targets[label != "background" & !is.na(selected_genes)],
+      data = targets[label != "background" & !is.na(smooth_log2) & !is.na(maf) & !is.na(selected_genes)],
       aes(x = 2^smooth_log2, y = maf, fill = selected_genes),
       shape = 21, size = theme_params$size_selected, alpha = 0.8, col = "black"
     ) +
@@ -795,17 +801,17 @@ create_snp_plots <- function(targets, cancergenes_summary, chroms, chroms_order,
       )
     ) +
     geom_point(
-      data = targets[, .(smooth_log2, maf)],
+      data = targets[!is.na(smooth_log2) & !is.na(maf), .(smooth_log2, maf)],
       aes(x = 2^smooth_log2, y = maf), col = "lightgrey", alpha = .2
     ) +
     geom_point(
-      data = targets[label != "background" & is.na(selected_genes)],
+      data = targets[label != "background" & !is.na(smooth_log2) & !is.na(maf) & is.na(selected_genes)],
       aes(x = 2^smooth_log2, y = maf),
       fill = "#606060", col = "#202020", shape = 21, 
       size = theme_params$size, alpha = theme_params$alpha
     ) +
     geom_point(
-      data = targets[label != "background" & !is.na(selected_genes)],
+      data = targets[label != "background" & !is.na(smooth_log2) & !is.na(maf) & !is.na(selected_genes)],
       aes(x = 2^smooth_log2, y = maf, fill = selected_genes),
       shape = 21, size = theme_params$size_selected, alpha = 0.8, col = "black"
     )
@@ -1133,8 +1139,9 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
   p$pos_log2 <- plot_pos_log2(targets, segments, cancergenes_summary, chroms,
                                yaxis_params, theme_params)
   
-  # 9. Create SNP plots if needed
-  if (!is.null(snp_table)) {
+  # 9. Create variant panels if SNPs or somatic mutations are available.
+  use_variant_panels <- !is.null(snp_table) || (!is.null(somatic_plot) && nrow(somatic_plot) > 0)
+  if (use_variant_panels) {
     targets <- prepare_snp_data(snp_table, targets)
     snp_plots <- create_snp_plots(targets, cancergenes_summary, chroms, chroms_order,
                                    somatic_plot, somatic_labels, yaxis_params, theme_params)
@@ -1146,7 +1153,7 @@ plot_results <- function(targets, segments, reference = NULL, snp_table = NULL,
   p <- format_plot_legends(p)
   
   # 11. Arrange and save
-  arrange_and_save_plots(p, !is.null(snp_table), title, output_file)
+  arrange_and_save_plots(p, use_variant_panels, title, output_file)
 }
 
 #' Plot GIS Score
@@ -1303,8 +1310,12 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
                     plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50"))
     )
 
-  # Save
-  suppressWarnings(ggsave(output_file, plot = final_plot, width = 16, height = 12, dpi = 300))
+  # Save if requested, otherwise return the plot for report embedding.
+  if (!is.null(output_file)) {
+    suppressWarnings(ggsave(output_file, plot = final_plot, width = 16, height = 12, dpi = 300))
+  }
+
+  invisible(final_plot)
 }
 
 

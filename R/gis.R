@@ -218,8 +218,12 @@ compute_gis_table <- function(targets, snps = NULL, fractions = seq(0.01, 1.00, 
     # Merge back to binning
     bins_final <- merge(binning, bin_stats, by.x = "bid", by.y = "queryHits", all.x = TRUE)
 
-    # Filter valid bins (Must have both log2 AND maf, per frankenscript.R)
-    bins_final <- bins_final[!is.na(log2) & !is.na(maf)]
+    # Filter valid bins: must have log2; maf only required when SNPs are available
+    if (all(is.na(bins_final$maf))) {
+      bins_final <- bins_final[!is.na(log2)]
+    } else {
+      bins_final <- bins_final[!is.na(log2) & !is.na(maf)]
+    }
 
     # 4. Compute Features ----------------------------------------------------
     bins_final[, arm_median := median(log2, na.rm = TRUE), by = arm]

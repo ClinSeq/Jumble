@@ -1,0 +1,1139 @@
+---
+title: "`r params$sample_name`"
+output:
+  html_document:
+    toc: false
+    theme: lumen
+    toc_float: true
+    toc_depth: 4
+    df_print: paged
+    self_contained: true
+params:
+  bins_t: NULL
+  segments_t: NULL
+  bins_n: NULL
+  segments_n: NULL
+  alf: NULL
+  alf_n: NULL
+  salf: NULL
+  galf_t: NULL
+  galf_n: NULL
+  hrdtable: NULL
+  qc_metrics: NULL
+  dpyd_result: NULL
+  dpyd_table: NULL
+  genome: "hg19"
+  sample_name: "Sample"
+editor_options:
+  chunk_output_type: console
+---
+
+<style>
+body { position: relative; left: 42px; }
+.main-container { max-width: none !important; }
+table, td, th {
+  align: left; font-size: 11px; border: none;
+  padding-left: 5em; padding-right: 5em;
+  min-width: 100%; word-wrap: break-word; max-width: 240px;
+  margin-left: auto; margin-right: auto;
+  margin-top: 1em; margin-bottom: 1em;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, comment = '', warning = FALSE,
+                      error = FALSE, message = FALSE)
+options(width = 1200)
+library(data.table)
+library(ggplot2); theme_set(theme_bw())
+library(ggrepel)
+library(patchwork)
+library(stringr)
+
+bins_t     <- params$bins_t
+segments_t <- params$segments_t
+bins_n     <- params$bins_n
+segments_n <- params$segments_n
+alf        <- params$alf
+alf_n      <- params$alf_n
+salf       <- params$salf
+galf_t     <- params$galf_t
+galf_n     <- params$galf_n
+hrdtable   <- params$hrdtable
+qc_metrics <- params$qc_metrics
+dpyd_result <- params$dpyd_result
+dpyd_table  <- params$dpyd_table
+genome     <- params$genome
+sample_name <- params$sample_name
+has_normal <- !is.null(bins_n)
+
+noise <- function(data) {
+  m <- median(abs(diff(data)), na.rm = TRUE)
+  round(100 * (2^m - 1), 2)
+}
+label_genes <- Jumble:::frankenplot_cancer_genes()
+```
+
+```{r prepare_data, include=FALSE}
+# Target type fallback
+if (is.null(bins_t$type) && "target type" %in% names(bins_t)) bins_t[, type := `target type`]
+if (is.null(bins_t$type)) {
+  bins_t[, type := "target"]
+  if ("gene" %in% names(bins_t)) {
+    bg_idx <- which(bins_t$gene == "Background")
+    if (length(bg_idx) > 0) data.table::set(bins_t, bg_idx, "type", "background")
+  }
+}
+
+bins_t[, `selected genes` := as.character(NA)]
+if ("gene" %in% names(bins_t)) {
+  for (g in label_genes) {
+    idx <- which(bins_t$type != "background" & grepl(paste0("(^|,)", g, "($|,)"), bins_t$gene))
+    if (length(idx) > 0) data.table::set(bins_t, idx, "selected genes", g)
+  }
+}
+
+cancergenes <- data.table(gene = label_genes, symbol = label_genes)
+cancergenes[, gene_class := as.character(NA)]
+try({
+  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "Jumble")
+  if (cgc_path != "" && file.exists(cgc_path)) {
+    cgc <- data.table::fread(cgc_path)
+    if (all(c("hugo_symbol", "alteration") %in% names(cgc))) {
+      cgc[, gene_class := fifelse(alteration == "amp", "O",
+                            fifelse(alteration == "del", "T", NA_character_))]
+      cgc <- cgc[!is.na(gene_class), .(gene = hugo_symbol, gene_class)]
+      cgc <- unique(cgc, by = "gene")
+      cancergenes[cgc, gene_class := i.gene_class, on = "gene"]
+    }
+  }
+}, silent = TRUE)
+cancergenes[, bin := as.numeric(NA)][, depth := as.numeric(NA)][, log2 := as.numeric(NA)]
+cancergenes[, gene_factor := factor(symbol, levels = label_genes)]
+for (g in label_genes) {
+  sel <- bins_t[`selected genes` == g & !is.na(`selected genes`)]
+  if (nrow(sel) > 0) {
+    data.table::set(cancergenes, which(cancergenes$gene == g), "bin", median(sel$bin, na.rm = TRUE))
+    data.table::set(cancergenes, which(cancergenes$gene == g), "depth", median(sel$depth, na.rm = TRUE))
+    data.table::set(cancergenes, which(cancergenes$gene == g), "log2", median(sel$smooth_log2, na.rm = TRUE))
+  }
+}
+cancergenes_here <- cancergenes[!is.na(bin)]
+if (nrow(cancergenes_here) > 0) {
+  cancergenes_here[depth == 0, depth := NA]
+  cancergenes_here[, `selected genes` := factor(gene, levels = levels(cancergenes$gene_factor))]
+}
+bins_t[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+
+chroms <- bins_t[, max(end), by = chromosome]; setnames(chroms, "V1", "length")
+chroms[, start := 0.0][, stop := as.double(length)][, mid := round(length / 2)]
+for (i in 2:nrow(chroms)) {
+  data.table::set(chroms, i, "start", chroms$stop[i - 1])
+  data.table::set(chroms, i, "stop", chroms$stop[i - 1] + chroms$length[i])
+  data.table::set(chroms, i, "mid", chroms$stop[i - 1] + round(chroms$length[i] / 2))
+}
+
+bins_t[, gpos := (start + end) / 2]
+for (chr in unique(bins_t$chromosome)[-1]) {
+  co <- sum(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)
+  idx <- which(bins_t$chromosome == chr)
+  if (length(idx) > 0) data.table::set(bins_t, idx, "gpos", bins_t$gpos[idx] + co)
+}
+
+if (!is.null(alf) && nrow(alf) > 0) {
+  alf[, gpos := as.double(pos)]
+  for (chr in unique(bins_t$chromosome)[-1]) {
+    co <- sum(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)
+    idx_s <- which(alf$chromosome == chr)
+    if (length(idx_s) > 0) data.table::set(alf, idx_s, "gpos", alf$gpos[idx_s] + co)
+  }
+  if ("bin" %in% names(alf)) {
+    vb <- which(!is.na(alf$bin) & alf$bin >= 1 & alf$bin <= nrow(bins_t))
+    if (length(vb) > 0) {
+      alf[, `selected genes` := as.character(NA)]
+      data.table::set(alf, vb, "selected genes", as.character(bins_t$`selected genes`[alf$bin[vb]]))
+      alf[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+    }
+  }
+}
+
+if (!is.null(segments_t) && nrow(segments_t) > 0) {
+  segments_t[, gstart := as.double(start_pos)][, gstop := as.double(end_pos)]
+  for (chr in unique(bins_t$chromosome)[-1]) {
+    co <- as.double(sum(as.double(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)))
+    idx_seg <- which(segments_t$chromosome == chr)
+    if (length(idx_seg) > 0) {
+      data.table::set(segments_t, idx_seg, "gstart", segments_t$gstart[idx_seg] + co)
+      data.table::set(segments_t, idx_seg, "gstop", segments_t$gstop[idx_seg] + co)
+    }
+  }
+}
+
+if (!is.null(salf) && nrow(salf) > 0) {
+  salf[, gpos := as.double(start)]
+  if ("bin" %in% names(salf)) {
+    vs <- which(!is.na(salf$bin) & salf$bin >= 1 & salf$bin <= nrow(bins_t))
+    if (length(vs) > 0) { salf[, log2 := as.numeric(NA)]; data.table::set(salf, vs, "log2", bins_t$log2[salf$bin[vs]]) }
+  }
+  for (chr in unique(bins_t$chromosome)[-1]) {
+    co <- as.double(sum(as.double(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)))
+    idx_som <- which(salf$chromosome == chr)
+    if (length(idx_som) > 0) data.table::set(salf, idx_som, "gpos", salf$gpos[idx_som] + co)
+  }
+}
+
+if (!is.null(galf_t) && nrow(galf_t) > 0) {
+  galf_t[, gpos := as.double(start)]
+  for (chr in unique(bins_t$chromosome)[-1]) {
+    co <- as.double(sum(as.double(chroms[1:(which(chroms$chromosome == chr) - 1)]$length)))
+    idx_germ <- which(galf_t$chromosome == chr)
+    if (length(idx_germ) > 0) data.table::set(galf_t, idx_germ, "gpos", galf_t$gpos[idx_germ] + co)
+  }
+}
+
+if (nrow(cancergenes_here) > 0) {
+  vc <- which(!is.na(cancergenes_here$bin) & cancergenes_here$bin >= 1 & cancergenes_here$bin <= nrow(bins_t))
+  if (length(vc) > 0) {
+    cancergenes_here[, gpos := as.numeric(NA)]
+    data.table::set(cancergenes_here, vc, "gpos", bins_t$gpos[round(cancergenes_here$bin[vc])])
+    data.table::set(cancergenes_here, vc, "log2", bins_t$smooth_log2[round(cancergenes_here$bin[vc])])
+  }
+  cancergenes_here <- cancergenes_here[order(bin)]
+  cancergenes_here[, gene := factor(gene, levels = unique(gene), ordered = TRUE)]
+}
+
+chroms_order <- data.table(chromosome = unique(bins_t$chromosome), start = 0, end = 0, mid = 0)
+for (chr in chroms_order$chromosome) {
+  ci <- which(chroms_order$chromosome == chr)
+  data.table::set(chroms_order, ci, "start", bins_t[chromosome == chr, min(bin)])
+  data.table::set(chroms_order, ci, "end", bins_t[chromosome == chr, max(bin)])
+  data.table::set(chroms_order, ci, "mid", round(bins_t[chromosome == chr, mean(bin)]))
+}
+
+ylims <- c(min(0.4, min(2^bins_t[chromosome != "Y"]$smooth_log2, na.rm = TRUE)),
+           max(3, max(2^bins_t$smooth_log2, na.rm = TRUE)))
+ybreaks <- c(0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 8)
+ybreaks <- ybreaks[ybreaks >= ylims[1] & ybreaks <= ylims[2]]
+yminorbreaks <- c(1.25, 1.75)
+
+m_depth <- median(bins_t[type != "background" & chromosome %in% c(1:22)]$depth, na.rm = TRUE)
+wgs <- all((bins_t$end - bins_t$start) > 500)
+depthlimits <- if (wgs) c(m_depth / 3, m_depth * 2) else c(m_depth / 4, m_depth * 4)
+if (nrow(cancergenes_here) > 0 && any(!is.na(cancergenes_here$depth))) {
+  if (max(cancergenes_here$depth * 1.1, na.rm = TRUE) > depthlimits[2]) depthlimits[2] <- max(cancergenes_here$depth, na.rm = TRUE) * 1.1
+  if (min(cancergenes_here$depth * 0.9, na.rm = TRUE) < depthlimits[1]) depthlimits[1] <- min(cancergenes_here$depth, na.rm = TRUE) * 0.9
+}
+alpha <- ifelse(wgs, 0.1, 0.4)
+
+if (nrow(cancergenes_here) > 0) {
+  cancergenes_here[, nudge := 0.3]
+  if (nrow(cancergenes_here) > 1) data.table::set(cancergenes_here, seq(2, nrow(cancergenes_here), 2), "nudge", -0.3)
+  li <- which(!is.na(cancergenes_here$depth) & cancergenes_here$depth < m_depth * 0.8)
+  if (length(li) > 0) data.table::set(cancergenes_here, li, "nudge", 0.3)
+  hi <- which(!is.na(cancergenes_here$depth) & cancergenes_here$depth > m_depth * 1.2)
+  if (length(hi) > 0) data.table::set(cancergenes_here, hi, "nudge", -0.3)
+  if (wgs) cancergenes_here[, nudge := nudge * (2 / 3)]
+}
+
+bins_t[, smooth_log2 := runmed(log2, k = min(51, nrow(bins_t) %/% 2 * 2 + 1))]
+
+gridsnps <- NULL
+if (!is.null(alf) && nrow(alf) > 0 && "bin" %in% names(alf)) {
+  gridsnps <- copy(alf[!is.na(bin) & !is.na(maf) & bin >= 1 & bin <= nrow(bins_t)])
+  if (nrow(gridsnps) > 0) {
+    gridsnps[, log2 := bins_t$log2[bin]]
+    gridsnps[, smooth_log2 := bins_t$smooth_log2[bin]]
+    if (wgs && "gene" %in% names(bins_t)) gridsnps <- gridsnps[bins_t[gridsnps$bin]$gene != "-"]
+    k_maf <- min(21, nrow(gridsnps) %/% 2 * 2 + 1)
+    if (k_maf >= 3) gridsnps[, smooth_maf := runmed(maf, k_maf)] else gridsnps[, smooth_maf := maf]
+    set.seed(25)
+    if (nrow(gridsnps) > 20e3) gridsnps <- gridsnps[!is.na(`selected genes`) | runif(nrow(gridsnps)) < (20e3 / nrow(gridsnps))]
+    gridsnps <- unique(gridsnps[, .(chromosome, `selected genes`, smooth_log2, smooth_maf)])
+  }
+}
+
+alltargets <- bins_t
+set.seed(25)
+if (nrow(bins_t) > 3e5) bins_t <- bins_t[!is.na(`selected genes`) | runif(nrow(bins_t)) < (3e5 / nrow(bins_t))]
+
+if (has_normal) {
+  bins_n[, smooth_log2 := runmed(log2, k = min(7, nrow(bins_n))), by = chromosome]
+  if (is.null(bins_n$type) && "target type" %in% names(bins_n)) bins_n[, type := `target type`]
+  if (is.null(bins_n$type)) {
+    bins_n[, type := "target"]
+    if ("gene" %in% names(bins_n)) { bgi <- which(bins_n$gene == "Background"); if (length(bgi) > 0) data.table::set(bins_n, bgi, "type", "background") }
+  }
+  bins_n[, `selected genes` := as.character(NA)]
+  if ("gene" %in% names(bins_n)) {
+    for (g in label_genes) {
+      idx <- which(bins_n$type != "background" & grepl(paste0("(^|,)", g, "($|,)"), bins_n$gene))
+      if (length(idx) > 0) data.table::set(bins_n, idx, "selected genes", g)
+    }
+  }
+  bins_n[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+  bins_n[, gpos := (start + end) / 2]
+  for (chr in unique(bins_n$chromosome)) {
+    if (chr %in% chroms$chromosome) {
+      chr_i <- which(chroms$chromosome == chr)
+      co <- if (chr_i > 1) sum(chroms[1:(chr_i - 1)]$length) else 0
+      idx <- which(bins_n$chromosome == chr)
+      if (length(idx) > 0) data.table::set(bins_n, idx, "gpos", bins_n$gpos[idx] + co)
+    }
+  }
+  if (!is.null(segments_n) && nrow(segments_n) > 0) {
+    segments_n[, gstart := as.double(start_pos)][, gstop := as.double(end_pos)]
+    for (chr in unique(segments_n$chromosome)) {
+      if (chr %in% chroms$chromosome) {
+        chr_i <- which(chroms$chromosome == chr)
+        co <- if (chr_i > 1) as.double(sum(as.double(chroms[1:(chr_i - 1)]$length))) else 0
+        idx_seg <- which(segments_n$chromosome == chr)
+        if (length(idx_seg) > 0) {
+          data.table::set(segments_n, idx_seg, "gstart", segments_n$gstart[idx_seg] + co)
+          data.table::set(segments_n, idx_seg, "gstop", segments_n$gstop[idx_seg] + co)
+        }
+      }
+    }
+  }
+}
+
+make_mutation_labels <- function(variants, cancergenes_genes, type = "somatic") {
+  if (is.null(variants) || nrow(variants) == 0) return(NULL)
+  labels <- variants[SYMBOL %in% cancergenes_genes & effect %in% c("hotspot", "high-impact")]
+  if ("CANONICAL" %in% names(labels)) labels <- labels[CANONICAL == "YES" | is.na(CANONICAL)]
+  if (nrow(labels) == 0) return(NULL)
+  labels[, ppos := str_extract(Protein_position, "[0-9]*")]
+  labels[, aa := str_extract(Amino_acids, "[A-Z]$")]; labels[is.na(aa), aa := ""]
+  if ("Consequence" %in% names(labels)) {
+    labels[Consequence == "stop_gained", aa := "*"]
+    labels[str_detect(Consequence, "frameshift"), aa := "fs"]
+    labels[str_detect(Consequence, "inframe"), aa := "if"]
+    labels[str_detect(Consequence, "splice"), aa := "sp"]
+  }
+  labels[, label := paste0(SYMBOL, ":", ppos, aa)]
+  labels[, nudge := 0.1]
+  if (type == "somatic" && "AF.T" %in% names(labels)) {
+    h <- which(labels[["AF.T"]] > 0.8); if (length(h) > 0) data.table::set(labels, h, "nudge", -0.1)
+  } else if ("allele_ratio" %in% names(labels)) {
+    h <- which(labels$allele_ratio > 0.8); if (length(h) > 0) data.table::set(labels, h, "nudge", -0.1)
+  }
+  return(labels)
+}
+
+if (!is.null(salf) && nrow(salf) > 0 && !"point mutation" %in% names(salf)) {
+  salf[, `point mutation` := "snv"]
+  if ("REF" %in% names(salf) && "ALT" %in% names(salf)) {
+    salf[nchar(REF) > nchar(ALT), `point mutation` := "del"]
+    salf[nchar(REF) < nchar(ALT), `point mutation` := "ins"]
+  }
+}
+if (!is.null(galf_t) && nrow(galf_t) > 0 && !"point mutation" %in% names(galf_t)) {
+  galf_t[, `point mutation` := "snv"]
+  if ("REF" %in% names(galf_t) && "ALT" %in% names(galf_t)) {
+    galf_t[nchar(REF) > nchar(ALT), `point mutation` := "del"]
+    galf_t[nchar(REF) < nchar(ALT), `point mutation` := "ins"]
+  }
+}
+
+if (!is.null(alf) && nrow(alf) > 0) {
+  set.seed(25); alf[, plot := TRUE]
+  if (nrow(alf) > 300e3) alf[, plot := runif(.N) < (300e3 / .N)]
+}
+
+format_qc_value <- function(x, digits = 2) {
+  if (is.null(x) || length(x) == 0 || is.na(x) || identical(as.character(x), "")) return(NULL)
+  if (is.numeric(x)) return(format(round(x, digits), nsmall = digits, trim = TRUE))
+  as.character(x)
+}
+
+qc_parts <- character(0)
+if (!is.null(qc_metrics) && nrow(qc_metrics) > 0) {
+  qc <- qc_metrics[1]
+  if ("median_target_count" %in% names(qc)) {
+    v <- format_qc_value(qc$median_target_count, digits = 0)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("Median count: ", v))
+  }
+  if ("gc_bias" %in% names(qc)) {
+    v <- format_qc_value(qc$gc_bias, digits = 2)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("GC-Bias: ", v))
+  }
+  if ("noise" %in% names(qc)) {
+    v <- format_qc_value(qc$noise, digits = 2)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("Noise: ", v))
+  }
+  if ("waviness" %in% names(qc)) {
+    v <- format_qc_value(qc$waviness, digits = 2)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("Waviness: ", v))
+  }
+  if ("sex" %in% names(qc)) {
+    v <- format_qc_value(qc$sex, digits = 0)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("Sex: ", v))
+  }
+  if ("contamination" %in% names(qc)) {
+    v <- format_qc_value(qc$contamination, digits = 3)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("Contam: ", v))
+  }
+  if (all(c("MSI_mono", "MSI_di") %in% names(qc))) {
+    msi_mono <- suppressWarnings(as.integer(qc$MSI_mono))
+    msi_di <- suppressWarnings(as.integer(qc$MSI_di))
+    if (!is.na(msi_mono) && !is.na(msi_di)) qc_parts <- c(qc_parts, paste0("MSI: ", msi_mono + msi_di))
+  }
+  if ("TMB_score" %in% names(qc)) {
+    v <- format_qc_value(qc$TMB_score, digits = 1)
+    if (!is.null(v)) qc_parts <- c(qc_parts, paste0("TMB: ", v))
+  }
+}
+
+if (length(qc_parts) > 0) {
+  cov_stats <- paste(qc_parts, collapse = " | ")
+} else {
+  cov_stats <- ""
+  if (!is.null(alf) && nrow(alf) > 0 && "depth" %in% names(alf)) {
+    cov_range <- paste(round(quantile(alf$depth, c(0.1, 0.9), na.rm = TRUE)), collapse = "-")
+    cov_stats <- paste0("Coverage: ", cov_range)
+  }
+  noise_val <- noise(alltargets[type != "background" | is.na(type)]$log2)
+  cov_stats <- paste0(cov_stats, ", Noise: ", noise_val, "%")
+}
+if (!is.null(dpyd_result)) cov_stats <- paste0(cov_stats, " | DPYD: ", dpyd_result$genotype)
+```
+
+```{r plot_functions, include=FALSE}
+fp_genomeplot <- function(name, targets, segments, snps, somatic, germline,
+                           chroms, chroms_order, cancergenes, cancergenes_here,
+                           ylims, ybreaks, yminorbreaks, depthlimits, alpha, wgs, gridsnps = NULL) {
+  targets <- data.table::copy(targets)
+  if (is.null(targets$type) && "target type" %in% names(targets)) targets[, type := `target type`]
+  if (is.null(targets$type)) {
+    targets[, type := "target"]
+    if ("gene" %in% names(targets)) {
+      bgi <- which(targets$gene == "Background")
+      if (length(bgi) > 0) data.table::set(targets, bgi, "type", "background")
+    }
+  }
+  if (!"selected genes" %in% names(targets)) targets[, `selected genes` := as.character(NA)]
+  targets[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+  if (!"smooth_log2" %in% names(targets)) targets[, smooth_log2 := log2]
+  if (!"allele_ratio" %in% names(targets)) targets[, allele_ratio := as.numeric(NA)]
+  if (!"gpos" %in% names(targets)) {
+    targets[, gpos := (start + end) / 2]
+    for (chr in unique(targets$chromosome)) {
+      if (chr %in% chroms$chromosome) {
+        chr_i <- which(chroms$chromosome == chr)
+        co <- if (chr_i > 1) sum(chroms[1:(chr_i - 1)]$length) else 0
+        idx <- which(targets$chromosome == chr)
+        if (length(idx) > 0) data.table::set(targets, idx, "gpos", targets$gpos[idx] + co)
+      }
+    }
+  }
+
+  fp_add_variant_gpos <- function(dt) {
+    if (is.null(dt) || nrow(dt) == 0 || "gpos" %in% names(dt) || !"chromosome" %in% names(dt)) return(dt)
+    if ("start" %in% names(dt)) {
+      dt[, gpos := as.double(start)]
+    } else if ("pos" %in% names(dt)) {
+      dt[, gpos := as.double(pos)]
+    } else {
+      return(dt)
+    }
+    for (chr in unique(dt$chromosome)) {
+      if (chr %in% chroms$chromosome) {
+        chr_i <- which(chroms$chromosome == chr)
+        co <- if (chr_i > 1) as.double(sum(as.double(chroms[1:(chr_i - 1)]$length))) else 0
+        idx <- which(dt$chromosome == chr)
+        if (length(idx) > 0) data.table::set(dt, idx, "gpos", dt$gpos[idx] + co)
+      }
+    }
+    dt
+  }
+  snps <- fp_add_variant_gpos(snps)
+  somatic <- fp_add_variant_gpos(somatic)
+  germline <- fp_add_variant_gpos(germline)
+  if (!is.null(snps) && nrow(snps) > 0) {
+    if (!"selected genes" %in% names(snps)) snps[, `selected genes` := as.character(NA)]
+    snps[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+    if (!"plot" %in% names(snps)) snps[, plot := TRUE]
+  }
+  targets_plot <- as.data.frame(targets)
+  p <- list()
+  pt <- theme(panel.grid.major.x = element_blank(), panel.grid.minor.y = element_line(),
+              panel.grid.minor.x = element_line(color = "black"), axis.line = element_line(), axis.ticks = element_line())
+  pxs <- scale_x_continuous(breaks = chroms$mid, minor_breaks = chroms$start[-1],
+                             limits = c(0, max(targets$gpos + 5e6, na.rm = TRUE)), expand = c(0.01, 0.01), labels = chroms$chromosome)
+  oxs <- scale_x_continuous(breaks = chroms_order$mid, minor_breaks = chroms_order$start[-1],
+                             limits = c(0, max(targets$bin, na.rm = TRUE)), expand = c(0.01, 0.01), labels = chroms_order$chromosome)
+
+  # pos_log2
+  p$pos_log2 <- ggplot(targets_plot) + xlab("Genomic position") + ylab("Corrected depth") +
+    geom_point(data = as.data.frame(cancergenes), aes(x = 1, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+    geom_point(data = targets_plot[is.na(targets_plot[["selected genes"]]), ], aes(x = gpos, y = 2^log2), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+    geom_point(data = targets_plot[!is.na(targets_plot[["selected genes"]]), ], aes(x = gpos, y = 2^log2, fill = `selected genes`), show.legend = FALSE, shape = 21, col = "#00000050", size = 1) +
+    scale_fill_hue(l = 70) + scale_y_log10(limits = ylims, breaks = ybreaks, minor_breaks = yminorbreaks) + pxs + pt
+  if (!is.null(segments) && nrow(segments) > 0 && "gstart" %in% names(segments)) {
+    sv <- segments[!is.na(gstart) & !is.na(gstop)]
+    if (nrow(sv) > 0) p$pos_log2 <- p$pos_log2 + geom_segment(data = sv, col = "green", linewidth = 0.6, aes(x = gstart, xend = gstop, y = 2^log2, yend = 2^log2), inherit.aes = FALSE)
+  }
+
+  # order_log2
+  p$order_log2 <- ggplot(targets_plot) + xlab("Order of genomic position") + ylab("Corrected depth") +
+    geom_point(data = as.data.frame(cancergenes), aes(x = 1, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+    geom_point(data = targets_plot[is.na(targets_plot[["selected genes"]]), ], aes(x = bin, y = 2^log2), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+    geom_point(data = targets_plot[!is.na(targets_plot[["selected genes"]]), ], aes(x = bin, y = 2^log2, fill = `selected genes`), show.legend = FALSE, shape = 21, col = "#00000050", size = 1) +
+    scale_fill_hue(l = 70) + scale_y_log10(limits = ylims, breaks = ybreaks, minor_breaks = yminorbreaks) + oxs + pt
+  if (!is.null(segments) && nrow(segments) > 0) {
+    sv <- segments[!is.na(start_pos) & !is.na(end_pos)]
+    if (nrow(sv) > 0) p$order_log2 <- p$order_log2 + geom_segment(data = sv, col = "green", linewidth = 0.6, aes(x = start, xend = end, y = 2^log2, yend = 2^log2), inherit.aes = FALSE)
+  }
+
+  # pos_rawdepth
+  p$pos_rawdepth <- ggplot(targets_plot) + xlab("Genomic position") + ylab("Fragments") +
+    geom_point(data = as.data.frame(cancergenes), aes(x = 1, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+    geom_point(data = targets_plot[is.na(targets_plot[["selected genes"]]), ], aes(x = gpos, y = depth), fill = "#606060", col = "#202020", size = 1, shape = 21, alpha = alpha) +
+    geom_point(data = targets_plot[!is.na(targets_plot[["selected genes"]]), ], aes(x = gpos, y = depth, fill = `selected genes`), show.legend = FALSE, shape = 21, col = "#00000050", size = 1) +
+    scale_fill_hue(l = 70) + scale_y_log10(limits = depthlimits, minor_breaks = NULL) + pxs + pt
+  if (nrow(cancergenes_here) > 0 && "gpos" %in% names(cancergenes_here)) {
+    cgv <- cancergenes_here[!is.na(gpos) & !is.na(depth)]
+    if (nrow(cgv) > 0) p$pos_rawdepth <- p$pos_rawdepth +
+      geom_label_repel(data = cgv, aes(x = gpos, y = depth, label = `selected genes`, fill = `selected genes`),
+                       nudge_y = cgv$nudge, angle = 0, size = 1.8, show.legend = FALSE, segment.color = "black", box.padding = 0.1, label.padding = 0.1, point.padding = 0.1)
+  }
+
+  # order_rawdepth
+  p$order_rawdepth <- ggplot(targets_plot) + xlab("Order of genomic position") + ylab("Fragments") +
+    geom_point(data = as.data.frame(cancergenes), aes(x = 1, y = 0.5, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+    geom_point(data = targets_plot[targets_plot$type != "background", ], aes(x = bin, y = depth), fill = "#606060", col = "#202020", size = 1, shape = 21, alpha = alpha) +
+    geom_point(data = targets_plot[!is.na(targets_plot[["selected genes"]]), ], aes(x = bin, y = depth, fill = `selected genes`), show.legend = FALSE, shape = 21, col = "#00000050", size = 1) +
+    scale_fill_hue(l = 70) + scale_y_log10(limits = depthlimits, minor_breaks = NULL) + oxs + pt
+  if (nrow(cancergenes_here) > 0) {
+    cgv <- cancergenes_here[!is.na(bin) & !is.na(depth)]
+    if (nrow(cgv) > 0) p$order_rawdepth <- p$order_rawdepth +
+      geom_label_repel(data = cgv, aes(x = bin, y = depth, label = `selected genes`, fill = `selected genes`),
+                       nudge_y = cgv$nudge, angle = 0, size = 1.8, show.legend = FALSE, segment.color = "black", box.padding = 0.1, label.padding = 0.1, point.padding = 0.1)
+  }
+
+  # pos_alleleratio
+  has_snps <- !is.null(snps) && nrow(snps) > 0
+  has_somatic_vaf <- !is.null(somatic) && nrow(somatic) > 0 && "AF.T" %in% names(somatic)
+  has_germline_vaf <- !is.null(germline) && nrow(germline) > 0 && "allele_ratio" %in% names(germline)
+  if (has_snps || has_somatic_vaf || has_germline_vaf) {
+    base_data <- if (has_snps) snps else targets
+    p$pos_alleleratio <- ggplot(base_data) + xlab("Genomic position") + ylab("Allele ratio") +
+      geom_point(data = cancergenes, aes(x = 1, y = 0.5, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+      scale_fill_hue(l = 70)
+    if (has_snps) {
+      p$pos_alleleratio <- p$pos_alleleratio +
+        geom_point(data = snps[is.na(`selected genes`) & plot == TRUE], aes(x = gpos, y = allele_ratio), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+        geom_point(data = snps[!is.na(`selected genes`)], aes(x = gpos, y = allele_ratio, fill = `selected genes`), show.legend = FALSE, shape = 21, col = "#00000050", size = 1)
+    }
+    if (has_somatic_vaf) {
+      p$pos_alleleratio <- p$pos_alleleratio +
+        geom_point(data = somatic, aes(x = gpos, y = `AF.T`, shape = `point mutation`, col = `point mutation`), fill = "red", size = ifelse(wgs, 0.9, 1.2), show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22)) +
+        scale_color_manual(values = c("snv" = "darkred", "ins" = "red", "del" = "red", "other" = "darkred"))
+      sl <- make_mutation_labels(somatic, cancergenes$gene, "somatic")
+      if (!is.null(sl) && nrow(sl) > 0) p$pos_alleleratio <- p$pos_alleleratio +
+        geom_label_repel(data = sl, aes(x = gpos, y = `AF.T`, label = label), show.legend = FALSE, fill = "white", col = "darkred",
+                         nudge_y = sl$nudge, size = 2.3, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "red")
+    }
+    if (has_germline_vaf) {
+      p$pos_alleleratio <- p$pos_alleleratio +
+        geom_point(data = germline, aes(x = gpos, y = allele_ratio, shape = `point mutation`), col = "grey", fill = "blue", size = ifelse(wgs, 0.9, 1.2), show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22))
+      gl <- make_mutation_labels(germline, cancergenes$gene, "germline")
+      if (!is.null(gl) && nrow(gl) > 0) p$pos_alleleratio <- p$pos_alleleratio +
+        geom_label_repel(data = gl, aes(x = gpos, y = allele_ratio, label = label), show.legend = FALSE, fill = "white", col = "blue",
+                         nudge_y = gl$nudge, size = 2.5, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "blue")
+    }
+    p$pos_alleleratio <- p$pos_alleleratio +
+      scale_x_continuous(breaks = chroms$mid, minor_breaks = chroms$start[-1], limits = c(0, max(targets$gpos + 5e6, na.rm = TRUE)), expand = c(0.01, 0.01), labels = chroms$chromosome) +
+      scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), minor_breaks = c(0.1, 0.3, 0.5, 0.7, 0.9), limits = 0:1) + pt
+  } else { p$pos_alleleratio <- ggplot() + theme_void() + ggtitle("No allele-ratio or somatic VAF data available") }
+
+  # order_alleleratio
+  if (has_snps || has_somatic_vaf || has_germline_vaf) {
+    base_data <- if (has_snps) snps else targets
+    p$order_alleleratio <- ggplot(base_data) + xlab("Order of genomic position") + ylab("Allele ratio") +
+      geom_point(data = cancergenes, aes(x = 1, y = 0.5, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+      scale_fill_hue(l = 70)
+    if (has_snps) {
+      p$order_alleleratio <- p$order_alleleratio +
+        geom_point(data = snps[is.na(`selected genes`) & plot == TRUE], aes(x = bin, y = allele_ratio), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+        geom_point(data = snps[!is.na(`selected genes`)], aes(x = bin, y = allele_ratio, fill = `selected genes`), show.legend = FALSE, shape = 21, col = "#00000050", size = 1)
+    }
+    if (has_somatic_vaf) {
+      p$order_alleleratio <- p$order_alleleratio +
+        geom_point(data = somatic, aes(x = bin, y = `AF.T`, shape = `point mutation`, col = `point mutation`), fill = "red", size = ifelse(wgs, 0.9, 1.2), show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22)) +
+        scale_color_manual(values = c("snv" = "darkred", "ins" = "red", "del" = "red", "other" = "darkred"))
+      sl <- make_mutation_labels(somatic, cancergenes$gene, "somatic")
+      if (!is.null(sl) && nrow(sl) > 0) p$order_alleleratio <- p$order_alleleratio +
+        geom_label_repel(data = sl, aes(x = bin, y = `AF.T`, label = label), show.legend = FALSE, fill = "white", col = "darkred",
+                         nudge_y = sl$nudge, size = 2.2, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "red")
+    }
+    if (has_germline_vaf) {
+      p$order_alleleratio <- p$order_alleleratio +
+        geom_point(data = germline, aes(x = bin, y = allele_ratio, shape = `point mutation`), col = "grey", fill = "blue", size = ifelse(wgs, 0.9, 1.2), show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22))
+      gl <- make_mutation_labels(germline, cancergenes$gene, "germline")
+      if (!is.null(gl) && nrow(gl) > 0) p$order_alleleratio <- p$order_alleleratio +
+        geom_label_repel(data = gl, aes(x = bin, y = allele_ratio, label = label), show.legend = FALSE, fill = "white", col = "blue",
+                         nudge_y = gl$nudge, size = 2.2, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "blue")
+    }
+    p$order_alleleratio <- p$order_alleleratio + oxs +
+      scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), minor_breaks = c(0.1, 0.3, 0.5, 0.7, 0.9), limits = 0:1) + pt
+  } else { p$order_alleleratio <- ggplot() + theme_void() }
+
+  # depth_alleleratio
+  p$depth_alleleratio <- ggplot(targets_plot) + xlab("Corrected depth") + ylab("Allele ratio") +
+    geom_point(data = targets_plot, aes(x = 2^log2, y = allele_ratio), fill = "#606060", col = "#202020", shape = 21, size = 0.5, alpha = alpha) +
+    scale_x_continuous(limits = c(0.3, 2), breaks = c(0.5, 1, 1.5, 2), labels = c("0.5", "1", "1.5", "2")) +
+    scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), minor_breaks = c(0.1, 0.3, 0.5, 0.7, 0.9), limits = 0:1)
+  if (!is.null(somatic) && nrow(somatic) > 0 && "AF.T" %in% names(somatic) && "log2" %in% names(somatic)) {
+    p$depth_alleleratio <- p$depth_alleleratio +
+      geom_point(data = somatic, aes(x = 2^log2, y = `AF.T`, shape = `point mutation`, col = `point mutation`), fill = "red", size = ifelse(wgs, 0.6, 0.9), show.legend = FALSE) +
+      scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22)) +
+      scale_color_manual(values = c("snv" = "darkred", "ins" = "red", "del" = "red", "other" = "darkred"))
+  }
+
+  # gc_log2
+  if ("gc" %in% names(targets)) {
+    p$gc_log2 <- ggplot(targets_plot[targets_plot$type != "background", ]) + xlab("GC content") + ylab("Corrected depth") +
+      geom_point(aes(x = gc, y = 2^log2), fill = "#606060", col = "#202020", shape = 21, size = 0.3, alpha = 0.2) +
+      facet_wrap(facets = vars(type), nrow = 1) +
+      geom_text(data = unique(targets[type != "background", .(type)]), aes(label = type, x = 0.26, y = Inf), hjust = 0, vjust = 1.5) +
+      theme(panel.spacing = unit(0, "lines"), strip.background = element_blank(), strip.text.x = element_blank()) +
+      scale_x_continuous(limits = c(0.2, 0.8), breaks = c(0.3, 0.5, 0.7), minor_breaks = NULL) +
+      scale_y_log10(limits = ylims, breaks = ybreaks, minor_breaks = yminorbreaks) + scale_fill_hue(l = 70)
+  } else { p$gc_log2 <- ggplot() + theme_void() }
+
+  # gc_rawdepth
+  if ("gc" %in% names(targets)) {
+    p$gc_rawdepth <- ggplot(targets_plot[targets_plot$type != "background", ]) + xlab("GC content") + ylab("Fragments") +
+      geom_point(aes(x = gc, y = depth), fill = "#606060", col = "#202020", shape = 21, size = 0.3, alpha = 0.2) +
+      facet_wrap(facets = vars(type), nrow = 1) +
+      geom_text(data = unique(targets[type != "background", .(type)]), aes(label = type, x = 0.26, y = Inf), hjust = 0, vjust = 1.5) +
+      theme(panel.spacing = unit(0, "lines"), strip.background = element_blank(), strip.text.x = element_blank()) +
+      scale_x_continuous(limits = c(0.2, 0.8), breaks = c(0.3, 0.5, 0.7), minor_breaks = NULL) +
+      scale_y_log10(limits = depthlimits, minor_breaks = NULL) + scale_fill_hue(l = 70)
+  } else { p$gc_rawdepth <- ggplot() + theme_void() }
+
+  # nogrid
+  if (!is.null(gridsnps) && nrow(gridsnps) > 0) {
+    p$nogrid <- ggplot(gridsnps) +
+      scale_y_continuous(limits = c(0.5, 1), breaks = seq(0.5, 0.9, by = 0.1), labels = c("0.5","0.6","0.7","0.8","0.9"),
+                         sec.axis = sec_axis(~ 2 * (. - 0.5), name = "Homozygous DNA fraction", breaks = seq(0, 1, by = 0.1))) +
+      scale_x_continuous(limits = c(0, 2), breaks = c(0.5, 1, 1.5, 2), labels = c("0.5","1","1.5","2")) +
+      geom_vline(xintercept = 1, lty = 3) + xlab("Corrected depth (smooth)") + ylab("Major allele ratio (smooth)") +
+      geom_point(aes(x = 2^smooth_log2, y = smooth_maf), fill = "#AAAAAA", col = "#202020", shape = 21, size = 0.7, alpha = 0.4)
+  } else { p$nogrid <- ggplot() + theme_void() }
+
+  # grid
+  if (!is.null(gridsnps) && nrow(gridsnps) > 0) {
+    p$grid <- ggplot(gridsnps) +
+      scale_y_continuous(limits = c(0.5, 1), breaks = seq(0.5, 0.9, by = 0.1), labels = c("0.5","0.6","0.7","0.8","0.9")) +
+      scale_x_continuous(limits = c(0.2, 1.8), breaks = c(0.5, 1, 1.5, 2), labels = c("0.5","1","1.5","2")) +
+      xlab("Corrected depth (smooth)") + ylab("Major allele ratio (smooth)") +
+      geom_vline(xintercept = 1, lty = 3) +
+      geom_point(data = gridsnps[, -"chromosome", with = FALSE], aes(x = 2^smooth_log2, y = smooth_maf), col = "lightgrey", alpha = 0.2, size = 0.5) +
+      geom_point(aes(x = 2^smooth_log2, y = smooth_maf), fill = "#606060", col = "#202020", shape = 21, alpha = 0.3, size = 0.5) +
+      geom_text(data = unique(gridsnps[, .(chromosome)]), aes(x = 0.25, y = 0.95, label = chromosome)) +
+      scale_fill_hue(l = 70) +
+      facet_wrap(facets = vars(factor(chromosome, levels = unique(chromosome), ordered = TRUE)), ncol = 8) +
+      theme(panel.spacing = unit(0, "lines"), strip.background = element_blank(), strip.text.x = element_blank())
+    gs_genes <- gridsnps[!is.na(`selected genes`) & `selected genes` != ""]
+    if (nrow(gs_genes) > 0) p$grid <- p$grid +
+      geom_point(data = gs_genes, aes(x = 2^smooth_log2, y = smooth_maf, fill = `selected genes`), shape = 21, col = "#000000", size = 0.8, show.legend = FALSE)
+  } else { p$grid <- ggplot() + theme_void() }
+
+  for (i in seq_along(p)) p[[i]] <- p[[i]] + guides(fill = guide_legend(override.aes = list(shape = 21, size = 2))) + guides(shape = guide_legend(override.aes = list(size = 2)))
+  return(p)
+}
+```
+
+```{r fp_hrdplot_fn, include=FALSE}
+fp_hrdplot <- function(hrdtable, p_genome) {
+  if (is.null(hrdtable) || nrow(hrdtable) == 0) { cat("No GIS data available.\n"); return(invisible(NULL)) }
+  ht <- data.table::copy(hrdtable)
+  id_col <- "fraction"
+  measure_cols <- setdiff(names(ht), id_col)
+  ht_long <- data.table::melt(ht, id.vars = id_col, measure.vars = measure_cols, variable.name = "feature", value.name = "value")
+
+  plot <- ggplot() +
+    geom_line(data = ht_long[feature == "predicted_gis"], aes(x = fraction, y = value), linewidth = 2) +
+    geom_line(data = ht_long[feature %in% c("local_cnv", "focal_gain", "loh")],
+              aes(x = fraction, y = value, col = feature), lty = 1, linewidth = 1) +
+    scale_x_continuous(name = "Tumor DNA fraction", breaks = seq(0, 1, 0.05),
+                       minor_breaks = seq(0, 1, 0.01), labels = seq(0, 100, 5)) +
+    scale_y_continuous(name = "GMCK GIS score", limits = c(0, 100),
+                       breaks = seq(0, 100, 5), minor_breaks = seq(0, 100, 1),
+                       sec.axis = sec_axis(~., breaks = seq(0, 100, 5))) +
+    geom_hline(yintercept = 42, lty = 2, col = "#00000050", linewidth = 2)
+
+  pa <- plot_annotation(title = paste(sample_name))
+  print(p_genome$nogrid + plot + pa)
+}
+```
+
+```{r fp_chromplot_fn, include=FALSE}
+fp_chromplot <- function(chr, name, targets, segments, snps, somatic, germline,
+                          cancergenes, label_genes_list, wgs, alpha, make_mutation_labels) {
+  targets[, smooth_log2 := runmed(log2, k = 7), by = chromosome]
+  targets[, `selected genes` := factor(NA, levels = levels(cancergenes$gene_factor))]
+  targets[, cancergene := as.character(NA)]
+  if ("gene" %in% names(targets)) {
+    for (g in label_genes_list) {
+      idx <- which(grepl(paste0("(^|,)", g, "($|,)"), targets$gene))
+      if (length(idx) > 0) {
+        data.table::set(targets, idx, "selected genes", g)
+        data.table::set(targets, idx, "cancergene", g)
+      }
+    }
+  }
+
+  cg_chr <- data.table(gene = character(0), symbol = character(0), gene_class = character(0),
+                        startbin = numeric(0), endbin = numeric(0), mean = numeric(0),
+                        nudge = numeric(0))
+  if (any(!is.na(targets[chromosome == chr]$cancergene))) {
+    gene_list <- unique(na.omit(targets[chromosome == chr]$cancergene))
+    for (g in gene_list) {
+      sel <- targets[chromosome == chr & cancergene == g]
+      if (nrow(sel) > 0) {
+        gene_class <- cancergenes[gene == g, gene_class][1]
+        cg_chr <- rbind(cg_chr, data.table(
+          gene = g, symbol = g, gene_class = gene_class,
+          startbin = min(sel$bin), endbin = max(sel$bin),
+          mean = mean(sel$smooth_log2, na.rm = TRUE), nudge = 0.2
+        ), fill = TRUE)
+      }
+    }
+    if (nrow(cg_chr) > 0) {
+      cg_chr <- cg_chr[order(startbin)]
+      if (nrow(cg_chr) > 1) data.table::set(cg_chr, seq(2, nrow(cg_chr), 2), "nudge", -0.2)
+      cg_chr[mean < -0.2, nudge := 0.2]
+      cg_chr[mean > 0.3, nudge := -0.2]
+      if (wgs) cg_chr[, nudge := nudge * (2 / 3)]
+      cg_chr[, `selected genes` := factor(gene, levels = levels(cancergenes$gene_factor))]
+      cg_chr[, label := symbol]
+      cg_chr[gene_class %in% c("T", "O"), label := paste0(symbol, "^'", gene_class, "'")]
+    }
+  }
+
+  if (!is.null(snps) && nrow(snps) > 0 && "bin" %in% names(snps)) {
+    vb <- which(!is.na(snps$bin) & snps$bin >= 1 & snps$bin <= nrow(targets))
+    if (length(vb) > 0) {
+      snps[, `selected genes` := factor(NA, levels = levels(cancergenes$gene_factor))]
+      data.table::set(snps, vb, "selected genes", as.character(targets$`selected genes`[snps$bin[vb]]))
+      snps[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+    }
+  }
+
+  targets[, smooth_log2 := runmed(log2, k = min(51, nrow(targets) %/% 2 * 2 + 1))]
+
+  chr_gridsnps <- NULL
+  if (!is.null(snps) && nrow(snps) > 0 && "bin" %in% names(snps)) {
+    chr_gridsnps <- copy(snps[!is.na(bin) & !is.na(maf) & bin >= 1 & bin <= nrow(targets)])
+    if (nrow(chr_gridsnps) > 0) {
+      chr_gridsnps[, log2 := targets$log2[bin]]
+      chr_gridsnps[, smooth_log2 := targets$smooth_log2[bin]]
+      chr_gridsnps[, type := targets$type[bin]]
+      if (wgs && "gene" %in% names(targets)) chr_gridsnps <- chr_gridsnps[targets[chr_gridsnps$bin]$gene != "-"]
+      k_maf <- min(21, nrow(chr_gridsnps) %/% 2 * 2 + 1)
+      if (k_maf >= 3) chr_gridsnps[, smooth_maf := runmed(maf, k_maf)] else chr_gridsnps[, smooth_maf := maf]
+    }
+  }
+
+  ylims_c <- c(min(0.4, min(2^targets[chromosome == chr]$smooth_log2, na.rm = TRUE)),
+               max(3, max(2^targets[chromosome == chr]$smooth_log2, na.rm = TRUE)))
+  ybreaks_c <- c(0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4, 6, 10, 15, 20)
+  ybreaks_c <- ybreaks_c[ybreaks_c >= ylims_c[1] & ybreaks_c <= ylims_c[2]]
+  yminorbreaks_c <- c(1.25, 1.75)
+
+  p <- list()
+
+  # scatter
+  if (!is.null(chr_gridsnps) && nrow(chr_gridsnps) > 0) {
+    bg_sample <- chr_gridsnps[sample(x = 1:.N, size = min(.N, 20e3))]
+    p$scatter <- ggplot(chr_gridsnps) +
+      geom_point(data = cancergenes, aes(x = 0.5, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+      geom_point(data = bg_sample, aes(x = 2^smooth_log2, y = smooth_maf), fill = "#DDDDDD", col = "#BBBBBB", shape = 21, size = 1, alpha = alpha) +
+      geom_point(data = chr_gridsnps[chromosome == chr & is.na(`selected genes`)], aes(x = 2^smooth_log2, y = smooth_maf), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+      geom_point(data = chr_gridsnps[chromosome == chr & !is.na(`selected genes`)], aes(x = 2^smooth_log2, y = smooth_maf, fill = `selected genes`), shape = 21, col = "#00000050", size = 1, show.legend = FALSE) +
+      geom_point(data = chr_gridsnps[chromosome == chr & !is.na(`selected genes`) & type == "exonic"], aes(x = 2^smooth_log2, y = smooth_maf, fill = `selected genes`), shape = 23, col = "#000000FF", size = 1.5, show.legend = FALSE) +
+      scale_fill_hue(l = 70) +
+      scale_y_continuous(limits = c(0.5, 1), sec.axis = sec_axis(~ 2 * (. - 0.5), name = "Homozygous DNA fraction", breaks = seq(0, 1, by = 0.1))) +
+      scale_x_continuous(limits = c(0.3, 2), breaks = c(0.5, 1, 1.5, 2), labels = c("0.5", "1", "1.5", "2")) +
+      xlab("Corrected depth") + ylab("Major allele ratio")
+  } else { p$scatter <- ggplot() + theme_void() }
+
+  # gc_log2
+  if ("gc" %in% names(targets)) {
+    bg_sample_t <- targets[sample(x = 1:.N, size = min(.N, 20e3))]
+    p$gc_log2 <- ggplot(targets[chromosome == chr]) + xlab("GC content") + ylab("Corrected depth") +
+      geom_point(data = cancergenes, aes(x = 0.5, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+      geom_point(data = bg_sample_t, aes(x = gc, y = 2^log2), fill = "#DDDDDD", col = "#BBBBBB", shape = 21, size = 1, alpha = alpha) +
+      geom_point(data = targets[chromosome == chr & is.na(`selected genes`)], aes(x = gc, y = 2^log2), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+      geom_point(data = targets[chromosome == chr & !is.na(`selected genes`)], aes(x = gc, y = 2^log2, fill = `selected genes`), shape = 21, col = "#00000050", size = 1, show.legend = FALSE) +
+      geom_point(data = targets[chromosome == chr & !is.na(`selected genes`) & type == "exonic"], aes(x = gc, y = 2^log2, fill = `selected genes`), shape = 23, col = "#000000FF", size = 1.5, show.legend = FALSE) +
+      scale_fill_hue(l = 70) + scale_y_log10(limits = ylims_c, breaks = ybreaks_c, minor_breaks = yminorbreaks_c)
+  } else { p$gc_log2 <- ggplot() + theme_void() }
+
+  chr_theme <- theme(panel.grid.major.x = element_line(), panel.grid.minor.y = element_line(),
+                     axis.line = element_line(), axis.ticks = element_blank(), plot.margin = margin(6, 6, 6, 6, "pt"))
+  chr_max <- max(targets[chromosome == chr]$end + 10e6)
+  chr_xbreaks <- seq(0, chr_max, 10e6)
+  chr_xlabels <- c("0", paste0(seq(10, chr_max / 1e6, 10), "M"))
+  if (length(chr_xlabels) > length(chr_xbreaks)) chr_xlabels <- chr_xlabels[1:length(chr_xbreaks)]
+  if (length(chr_xlabels) < length(chr_xbreaks)) chr_xlabels <- c(chr_xlabels, rep("", length(chr_xbreaks) - length(chr_xlabels)))
+
+  # pos_log2
+  p$pos_log2 <- ggplot(targets[chromosome == chr]) + xlab(paste("Chromosome", chr, "position")) + ylab("Corrected depth") +
+    geom_point(data = cancergenes, aes(x = 1, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE)
+  if ("gene" %in% names(targets)) {
+    bg_bins <- targets[chromosome == chr & gene == "Background"]
+    if (nrow(bg_bins) > 0) p$pos_log2 <- p$pos_log2 +
+      geom_segment(data = bg_bins, col = "darkgrey", linewidth = 1, aes(x = start, xend = end, y = 2^log2, yend = 2^log2))
+  }
+  p$pos_log2 <- p$pos_log2 +
+    geom_point(data = targets[chromosome == chr & is.na(`selected genes`)], aes(x = start, y = 2^log2), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+    geom_point(data = targets[chromosome == chr & !is.na(`selected genes`)], aes(x = start, y = 2^log2, fill = `selected genes`), shape = 21, col = "#00000050", size = 1, show.legend = FALSE) +
+    geom_point(data = targets[chromosome == chr & !is.na(`selected genes`) & type == "exonic"], aes(x = start, y = 2^log2, fill = `selected genes`), shape = 23, col = "#000000FF", size = 1, show.legend = FALSE) +
+    scale_fill_hue(l = 70) +
+    scale_x_continuous(breaks = chr_xbreaks, expand = c(0.01, 0.01), limits = c(0, chr_max), labels = chr_xlabels) +
+    scale_y_log10(limits = ylims_c, breaks = ybreaks_c, minor_breaks = yminorbreaks_c) + chr_theme
+  if (!is.null(segments) && nrow(segments[chromosome == chr]) > 0) {
+    sc <- segments[chromosome == chr]
+    p$pos_log2 <- p$pos_log2 +
+      geom_segment(data = sc, col = "green", linewidth = 0.6, aes(x = start_pos, xend = end_pos, y = 2^log2, yend = 2^log2), inherit.aes = FALSE) +
+      geom_point(data = sc, col = "green", size = 0.4, shape = 18, aes(x = start_pos, y = 2^log2), inherit.aes = FALSE) +
+      geom_point(data = sc, col = "green", size = 0.4, shape = 18, aes(x = end_pos, y = 2^log2), inherit.aes = FALSE)
+  }
+  if (nrow(cg_chr) > 0) {
+    cg_pos <- data.table::copy(cg_chr)
+    cg_pos[, midpos := as.numeric(NA)]
+    for (i in seq_len(nrow(cg_pos))) {
+      g <- cg_pos$gene[i]
+      sel <- targets[chromosome == chr & cancergene == g]
+      if (nrow(sel) > 0) data.table::set(cg_pos, i, "midpos", median((sel$start + sel$end) / 2))
+    }
+    cg_pos <- cg_pos[!is.na(midpos)]
+    if (nrow(cg_pos) > 0) p$pos_log2 <- p$pos_log2 +
+      geom_label_repel(data = cg_pos, aes(x = midpos, y = 2^mean, label = label, fill = `selected genes`),
+                       nudge_y = cg_pos$nudge, angle = 0, size = 1.8, show.legend = FALSE, parse = TRUE,
+                       segment.color = "#50505090", box.padding = 0.1, label.padding = 0.15, point.padding = 0.1,
+                       segment.size = 0.5, arrow = arrow(length = unit(0.01, "npc")))
+  }
+
+  # pos_alleleratio
+  has_chr_snps <- !is.null(snps) && nrow(snps[chromosome == chr]) > 0
+  has_chr_somatic_vaf <- !is.null(somatic) && nrow(somatic[chromosome == chr]) > 0 && "AF.T" %in% names(somatic)
+  has_chr_germline_vaf <- !is.null(germline) && nrow(germline[chromosome == chr]) > 0 && "allele_ratio" %in% names(germline)
+  if (has_chr_snps || has_chr_somatic_vaf || has_chr_germline_vaf) {
+    base_chr_data <- if (has_chr_snps) snps[chromosome == chr] else targets[chromosome == chr]
+    p$pos_alleleratio <- ggplot(base_chr_data) + xlab(paste("Chromosome", chr, "position")) + ylab("Allele ratio") +
+      geom_point(data = cancergenes, aes(x = 1, y = 0.5, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+      scale_fill_hue(l = 70)
+    if (has_chr_snps) {
+      p$pos_alleleratio <- p$pos_alleleratio +
+        geom_point(data = snps[chromosome == chr & is.na(`selected genes`)], aes(x = start, y = allele_ratio), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+        geom_point(data = snps[chromosome == chr & !is.na(`selected genes`)], aes(x = start, y = allele_ratio, fill = `selected genes`), shape = 21, col = "#00000050", size = 1, show.legend = FALSE)
+    }
+    if (has_chr_somatic_vaf) {
+      p$pos_alleleratio <- p$pos_alleleratio +
+        geom_point(data = somatic[chromosome == chr], aes(x = start, y = `AF.T`, shape = `point mutation`, col = `point mutation`), fill = "red", size = 1.2, show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22)) +
+        scale_color_manual(values = c("snv" = "darkred", "ins" = "red", "del" = "red", "other" = "darkred"))
+      sl <- make_mutation_labels(somatic[chromosome == chr], cancergenes$gene, "somatic")
+      if (!is.null(sl) && nrow(sl) > 0) p$pos_alleleratio <- p$pos_alleleratio +
+        geom_label_repel(data = sl, aes(x = start, y = `AF.T`, label = label), show.legend = FALSE, fill = "white", col = "darkred",
+                         nudge_y = sl$nudge, size = 2.2, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "red")
+    }
+    if (has_chr_germline_vaf) {
+      p$pos_alleleratio <- p$pos_alleleratio +
+        geom_point(data = germline[chromosome == chr], aes(x = start, y = allele_ratio, shape = `point mutation`), col = "grey", fill = "blue", size = 1.2, show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22))
+      gl <- make_mutation_labels(germline[chromosome == chr], cancergenes$gene, "germline")
+      if (!is.null(gl) && nrow(gl) > 0) p$pos_alleleratio <- p$pos_alleleratio +
+        geom_label_repel(data = gl, aes(x = start, y = allele_ratio, label = label), show.legend = FALSE, fill = "white", col = "blue",
+                         nudge_y = gl$nudge, size = 2.2, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "blue")
+    }
+    p$pos_alleleratio <- p$pos_alleleratio +
+      scale_x_continuous(breaks = chr_xbreaks, expand = c(0.01, 0.01), limits = c(0, chr_max), labels = chr_xlabels) +
+      scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), minor_breaks = c(0.1, 0.3, 0.5, 0.7, 0.9), limits = 0:1) + chr_theme
+  } else { p$pos_alleleratio <- ggplot() + theme_void() }
+
+  # order_log2
+  bin_lims <- c(min(targets[chromosome == chr]$bin), max(targets[chromosome == chr]$bin))
+  ord_theme <- theme(panel.grid.major.x = element_line(), panel.grid.minor.y = element_line(),
+                     panel.grid.minor.x = element_line(), axis.line = element_blank(), axis.ticks = element_blank(), plot.margin = margin(6, 6, 6, 6, "pt"))
+  p$order_log2 <- ggplot(targets[chromosome == chr]) + xlab(paste("Chromosome", chr, "order")) + ylab("Corrected depth") +
+    geom_point(data = cancergenes, aes(x = 1, y = 1, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+    geom_point(data = targets[chromosome == chr & is.na(`selected genes`)], aes(x = bin, y = 2^log2), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+    geom_point(data = targets[chromosome == chr & !is.na(`selected genes`)], aes(x = bin, y = 2^log2, fill = `selected genes`), shape = 21, col = "#00000050", size = 1, show.legend = FALSE) +
+    geom_point(data = targets[chromosome == chr & !is.na(`selected genes`) & type == "exonic"], aes(x = bin, y = 2^log2, fill = `selected genes`), shape = 23, col = "#000000FF", size = 1, show.legend = FALSE) +
+    scale_fill_hue(l = 70) + scale_y_log10(limits = ylims_c, breaks = ybreaks_c, minor_breaks = yminorbreaks_c) +
+    scale_x_continuous(expand = c(0.01, 0.01), limits = bin_lims) + ord_theme
+  if (!is.null(segments) && nrow(segments[chromosome == chr]) > 0) {
+    sc <- segments[chromosome == chr]
+    p$order_log2 <- p$order_log2 +
+      geom_segment(data = sc, col = "green", linewidth = 0.6, aes(x = start, xend = end, y = 2^log2, yend = 2^log2), inherit.aes = FALSE) +
+      geom_point(data = sc, col = "green", size = 0.4, shape = 18, aes(x = start, y = 2^log2), inherit.aes = FALSE) +
+      geom_point(data = sc, col = "green", size = 0.4, shape = 18, aes(x = end, y = 2^log2), inherit.aes = FALSE)
+  }
+  if (nrow(cg_chr) > 0) p$order_log2 <- p$order_log2 +
+    geom_label_repel(data = cg_chr, aes(x = (startbin + endbin) / 2, y = 2^mean, label = label, fill = `selected genes`),
+                     nudge_y = cg_chr$nudge, angle = 0, size = 1.8, show.legend = FALSE, parse = TRUE,
+                     segment.color = "#50505090", box.padding = 0.1, label.padding = 0.15, point.padding = 0.1,
+                     segment.size = 0.5, arrow = arrow(length = unit(0.01, "npc")))
+
+  # order_alleleratio
+  if (has_chr_snps || has_chr_somatic_vaf || has_chr_germline_vaf) {
+    base_chr_data <- if (has_chr_snps) snps[chromosome == chr] else targets[chromosome == chr]
+    p$order_alleleratio <- ggplot(base_chr_data) + xlab(paste("Chromosome", chr, "order")) + ylab("Allele ratio") +
+      geom_point(data = cancergenes, aes(x = 1, y = 0.5, fill = gene_factor), shape = 1, col = "#FFFFFF", size = 0.1, show.legend = FALSE) +
+      scale_fill_hue(l = 70)
+    if (has_chr_snps) {
+      p$order_alleleratio <- p$order_alleleratio +
+        geom_point(data = snps[chromosome == chr & is.na(`selected genes`)], aes(x = bin, y = allele_ratio), fill = "#606060", col = "#202020", shape = 21, size = 1, alpha = alpha) +
+        geom_point(data = snps[chromosome == chr & !is.na(`selected genes`)], aes(x = bin, y = allele_ratio, fill = `selected genes`), shape = 21, col = "#00000050", size = 1, show.legend = FALSE)
+    }
+    if (has_chr_somatic_vaf) {
+      p$order_alleleratio <- p$order_alleleratio +
+        geom_point(data = somatic[chromosome == chr], aes(x = bin, y = `AF.T`, shape = `point mutation`, col = `point mutation`), fill = "red", size = 1.2, show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22)) +
+        scale_color_manual(values = c("snv" = "darkred", "ins" = "red", "del" = "red", "other" = "darkred"))
+      sl <- make_mutation_labels(somatic[chromosome == chr], cancergenes$gene, "somatic")
+      if (!is.null(sl) && nrow(sl) > 0) p$order_alleleratio <- p$order_alleleratio +
+        geom_label_repel(data = sl, aes(x = bin, y = `AF.T`, label = label), show.legend = FALSE, fill = "white", col = "darkred",
+                         nudge_y = sl$nudge, size = 2.2, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "red")
+    }
+    if (has_chr_germline_vaf) {
+      p$order_alleleratio <- p$order_alleleratio +
+        geom_point(data = germline[chromosome == chr], aes(x = bin, y = allele_ratio, shape = `point mutation`), col = "grey", fill = "blue", size = 1.2, show.legend = FALSE) +
+        scale_shape_manual(values = c("snv" = 21, "ins" = 25, "del" = 24, "other" = 22))
+      gl <- make_mutation_labels(germline[chromosome == chr], cancergenes$gene, "germline")
+      if (!is.null(gl) && nrow(gl) > 0) p$order_alleleratio <- p$order_alleleratio +
+        geom_label_repel(data = gl, aes(x = bin, y = allele_ratio, label = label), show.legend = FALSE, fill = "white", col = "blue",
+                         nudge_y = gl$nudge, size = 2.2, box.padding = 0.1, label.padding = 0.1, point.padding = 0.1, segment.size = 0.5, segment.color = "blue")
+    }
+    p$order_alleleratio <- p$order_alleleratio +
+      scale_x_continuous(expand = c(0.01, 0.01), limits = bin_lims) +
+      scale_y_continuous(breaks = c(0, 0.2, 0.4, 0.6, 0.8, 1), minor_breaks = c(0.1, 0.3, 0.5, 0.7, 0.9), limits = 0:1) + ord_theme
+  } else { p$order_alleleratio <- ggplot() + theme_void() }
+
+  for (i in seq_along(p)) p[[i]] <- p[[i]] + guides(fill = guide_legend(override.aes = list(shape = 21, size = 2))) + guides(shape = guide_legend(override.aes = list(size = 2)))
+
+  pa <- plot_annotation(title = paste(basename(name), "      Chromosome", chr))
+  if (!wgs) {
+    layout <- "AABB\nAABB\nCCCC\nDDDD\nEEEE\nFFFF"
+    fig <- p$gc_log2 + p$scatter + p$order_log2 + p$order_alleleratio + p$pos_log2 + p$pos_alleleratio +
+      plot_layout(design = layout, guides = "collect")
+  } else {
+    layout <- "AABB\nCCCC\nDDDD"
+    fig <- p$gc_log2 + p$scatter + p$pos_log2 + p$pos_alleleratio +
+      plot_layout(design = layout, guides = "collect")
+  }
+  print(fig + pa)
+}
+```
+
+# {.tabset .tabset-pills}
+
+## Genome {.active}
+
+```{r genome_tumor, results='hide', fig.keep='all', fig.height=15, fig.width=17}
+if (!is.null(alf) && nrow(alf) > 0 && "bin" %in% names(alf)) {
+  bins_t[, allele_ratio := as.numeric(NA)]
+  valid_ar <- alf[!is.na(bin) & bin >= 1 & bin <= nrow(bins_t) & !is.na(allele_ratio)]
+  if (nrow(valid_ar) > 0) {
+    ar_by_bin <- valid_ar[, .(allele_ratio = median(allele_ratio, na.rm = TRUE)), by = bin]
+    data.table::set(bins_t, ar_by_bin$bin, "allele_ratio", ar_by_bin$allele_ratio)
+  }
+} else { bins_t[, allele_ratio := as.numeric(NA)] }
+
+p_tumor <- fp_genomeplot(name = sample_name, targets = bins_t, segments = segments_t,
+  snps = alf, somatic = salf, germline = galf_t, chroms = chroms, chroms_order = chroms_order,
+  cancergenes = cancergenes, cancergenes_here = cancergenes_here,
+  ylims = ylims, ybreaks = ybreaks, yminorbreaks = yminorbreaks,
+  depthlimits = depthlimits, alpha = alpha, wgs = wgs, gridsnps = gridsnps)
+
+date_str <- format(Sys.time(), "%a %b %e %Y, %H:%M")
+pa <- plot_annotation(
+  title = paste(sample_name, "  ", date_str, "  ", cov_stats),
+  caption = paste0("Frankenplot (Jumble) on ", date_str, ".\nMarkus Mayrhofer and Johan Lindberg, Karolinska Institutet")
+)
+
+if (!wgs) {
+  layout <- "AABBBBBB
+              CCDDDDDD
+              EEFFFFFF
+              GGGGGGGG
+              HHHHHHHH
+              IIJJJJJJ
+              IIJJJJJJ"
+  fig <- p_tumor$gc_rawdepth + p_tumor$order_rawdepth +
+         p_tumor$gc_log2 + p_tumor$order_log2 +
+         p_tumor$depth_alleleratio + p_tumor$order_alleleratio +
+         p_tumor$pos_log2 +
+         p_tumor$pos_alleleratio +
+         p_tumor$nogrid + p_tumor$grid +
+         plot_layout(design = layout, guides = "collect")
+} else {
+  layout <- "ABBBB
+              CDDDD
+              EFFFF
+              GHHHH"
+  fig <- p_tumor$gc_rawdepth + p_tumor$pos_rawdepth +
+         p_tumor$gc_log2 + p_tumor$pos_log2 +
+         p_tumor$depth_alleleratio + p_tumor$pos_alleleratio +
+         p_tumor$nogrid + p_tumor$grid +
+         plot_layout(design = layout, guides = "collect")
+}
+print(fig + pa)
+```
+
+---
+
+```{r genome_normal, results='hide', fig.keep='all', fig.height=15, fig.width=17, eval=has_normal}
+bins_n_plot <- data.table::copy(bins_n)
+if (!"selected genes" %in% names(bins_n_plot)) bins_n_plot[, `selected genes` := as.character(NA)]
+bins_n_plot[, `selected genes` := factor(`selected genes`, levels = levels(cancergenes$gene_factor))]
+if (!"smooth_log2" %in% names(bins_n_plot)) bins_n_plot[, smooth_log2 := log2]
+if (!"allele_ratio" %in% names(bins_n_plot)) bins_n_plot[, allele_ratio := as.numeric(NA)]
+bins_n_plot[, gpos := (start + end) / 2]
+for (chr in unique(bins_n_plot$chromosome)) {
+  if (chr %in% chroms$chromosome) {
+    chr_i <- which(chroms$chromosome == chr)
+    co <- if (chr_i > 1) sum(chroms[1:(chr_i - 1)]$length) else 0
+    idx <- which(bins_n_plot$chromosome == chr)
+    if (length(idx) > 0) data.table::set(bins_n_plot, idx, "gpos", bins_n_plot$gpos[idx] + co)
+  }
+}
+
+p_normal <- fp_genomeplot(name = paste(sample_name, "(Normal)"),
+  targets = bins_n_plot, segments = segments_n, snps = alf_n, somatic = NULL, germline = galf_n,
+  chroms = chroms, chroms_order = chroms_order,
+  cancergenes = cancergenes, cancergenes_here = cancergenes_here,
+  ylims = ylims, ybreaks = ybreaks, yminorbreaks = yminorbreaks,
+  depthlimits = depthlimits, alpha = alpha, wgs = wgs)
+
+layout_n <- "ABBBB\nCDDDD\nEFFFF"
+fig_n <- p_normal$gc_rawdepth + p_normal$pos_rawdepth +
+         p_normal$gc_log2 + p_normal$pos_log2 +
+         p_normal$depth_alleleratio + p_normal$pos_alleleratio +
+         plot_layout(design = layout_n, guides = "collect")
+print(fig_n)
+```
+
+
+## HRD
+
+```{r hrd_tab, fig.height=5, fig.width=13}
+if (!is.null(hrdtable) && nrow(hrdtable) > 0) {
+  fp_hrdplot(hrdtable, p_tumor)
+
+  # Print GIS model coefficients only when GIS data was provided.
+  try({
+    cat("\nGIS model coefficients:\n")
+    print(as.data.table(Jumble::gis_model(NULL)))
+  }, silent = TRUE)
+
+  cat("\nPredicted GIS by fraction:\n")
+  ht_long <- data.table::melt(hrdtable, id.vars = "fraction",
+                                measure.vars = setdiff(names(hrdtable), "fraction"),
+                                variable.name = "feature", value.name = "value")
+  print(ht_long[feature == "predicted_gis", .(fraction, value)])
+} else {
+  cat("No GIS data provided. GIS/HRD curves are not displayed for this report.\n")
+}
+```
+
+## DPYD
+
+### Genotyping result
+
+```{r dpyd_result}
+if (!is.null(dpyd_result)) {
+  cat(paste0("DPYD genotyping result: ", dpyd_result$genotype[1], ". ", dpyd_result$text, "\n"))
+  if (!is.null(dpyd_table) && nrow(dpyd_table) > 0) {
+    g <- ggplot(dpyd_table) + xlab("Allele count") + ylab("Allele ratio") +
+      geom_point(aes(x = count, y = variant_ratio, fill = alias, shape = allele)) +
+      scale_shape_manual(values = c("wt" = 22, "alt" = 21)) +
+      facet_grid(rows = vars(allele), cols = vars(file)) +
+      guides(fill = guide_legend(override.aes = list(shape = 21, size = 2)))
+    print(g)
+  }
+} else { cat("No DPYD data provided.\n") }
+```
+
+### Evidence
+
+```{r dpyd_evidence}
+if (!is.null(dpyd_result)) print(as.list(dpyd_result))
+if (!is.null(dpyd_table) && nrow(dpyd_table) > 0) {
+  n_cols <- min(ncol(dpyd_table), 24)
+  knitr::kable(dpyd_table[, 1:n_cols, with = FALSE], "html", booktabs = TRUE) |>
+    kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = FALSE) |>
+    kableExtra::column_spec(1:n_cols, extra_css = "white-space: nowrap;") |>
+    kableExtra::scroll_box(width = "80%")
+}
+```
+
+
+```{r chrom_plots, results='asis', fig.height=16, fig.width=16}
+chromosomes <- c(as.character(1:22), "X")
+for (chr in chromosomes) {
+  cat(paste0("\n\n## ", chr, " {#chr", chr, "}\n\n"))
+  t_chr <- alltargets[chromosome == chr]
+  if (nrow(t_chr) == 0) next
+  s_chr <- if (!is.null(segments_t)) segments_t[chromosome == chr] else NULL
+  snps_chr <- if (!is.null(alf)) alf else NULL
+  som_chr <- if (!is.null(salf)) salf else NULL
+  germ_chr <- if (!is.null(galf_t)) galf_t else NULL
+
+  fp_chromplot(chr = chr, name = sample_name, targets = copy(alltargets),
+               segments = segments_t, snps = snps_chr, somatic = som_chr, germline = germ_chr,
+               cancergenes = cancergenes, label_genes_list = label_genes,
+               wgs = wgs, alpha = ifelse(wgs, 0.2, 0.8), make_mutation_labels = make_mutation_labels)
+
+  if (has_normal) {
+    cat("\n\n---\n\n")
+    fp_chromplot(chr = chr, name = paste(sample_name, "(Normal)"), targets = copy(bins_n),
+                 segments = segments_n, snps = alf_n, somatic = NULL, germline = galf_n,
+                 cancergenes = cancergenes, label_genes_list = label_genes,
+                 wgs = wgs, alpha = ifelse(wgs, 0.2, 0.8), make_mutation_labels = make_mutation_labels)
+  }
+}
+```
+
+
+## Data {.tabset}
+
+### Small Somatic
+
+```{r somatic_table}
+if (!is.null(salf) && nrow(salf) > 1) {
+  t_som <- salf[IMPACT %in% c("MODERATE", "HIGH") |
+                 grepl("athogenic", CLIN_SIG) |
+                 is_hotspot == TRUE |
+                 grepl("splice", Consequence)]
+  if (nrow(t_som) > 0) {
+    display_cols <- intersect(
+      c("chromosome", "start", "end", "REF", "ALT", "AF.T", "AO.T",
+        "DP.T", "SYMBOL", "Consequence", "IMPACT", "Amino_acids",
+        "Protein_position", "CLIN_SIG", "effect", "is_hotspot", "FILTER"),
+      names(t_som))
+    knitr::kable(t_som[, ..display_cols], "html", booktabs = TRUE) |>
+      kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed"), full_width = TRUE) |>
+      kableExtra::column_spec(1, width = "5em") |>
+      kableExtra::scroll_box(width = "100%", extra_css = "white-space: nowrap;")
+  }
+}
+```
+
+### Session Info {.active}
+
+```{r session_info}
+cat(paste("Report generated:", format(Sys.time(), "%Y-%m-%d %H:%M:%S"), "\n"))
+cat(paste("Genome:", genome, "\n"))
+cat(paste("Sample:", sample_name, "\n\n"))
+print(sessionInfo())
+```

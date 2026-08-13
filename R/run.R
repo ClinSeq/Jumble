@@ -343,9 +343,14 @@ perform_segmentation <- function(targets, reference, alltargets) {
   targets <- seg_res$targets
   segments <- seg_res$segments
   
-  # Merge back filtered bins
-  common_cols <- intersect(names(alltargets), names(targets))
-  targets <- merge(alltargets, targets, by = common_cols, all = TRUE)
+  # Merge back bins removed during filtering without overwriting normalized rows.
+  # The normalized/segmented table is authoritative for bins that survived
+  # processing. Older logic merged by all common columns, which could reintroduce
+  # pre-normalization rows and drop corrected values such as background log2.
+  missing_bins <- alltargets[!bin %in% targets$bin]
+  if (nrow(missing_bins) > 0) {
+    targets <- data.table::rbindlist(list(targets, missing_bins), fill = TRUE)
+  }
   targets <- targets[order(bin)]
   
   targets[, smooth_log2 := stats::runmed(log2, k = 7), by = chromosome]
@@ -395,11 +400,22 @@ perform_segmentation <- function(targets, reference, alltargets) {
 #' @return List with gis_table and updated targets
 #' @keywords internal
 compute_gis_and_maf <- function(targets, snp_table, reference, hrd_model = NULL) {
-  if (is.null(snp_table)) {
+  if (is.null(snp_table) && is.null(hrd_model)) {
     targets[, maf := as.numeric(NA)]
     targets[, long_median := as.numeric(NA)]
     targets[, local_snp_bg := as.numeric(NA)]
     return(list(gis_table = NULL, targets = targets))
+  }
+  
+  if (is.null(snp_table)) {
+    # No SNPs but custom HRD model provided — compute CNV-only GIS features
+    targets[, maf := as.numeric(NA)]
+    targets[, long_median := as.numeric(NA)]
+    targets[, local_snp_bg := as.numeric(NA)]
+    message("Computing custom HRD (no SNPs)...")
+    genome_version <- if (!is.null(reference$genome)) reference$genome else "hg19"
+    gis_table <- compute_gis_table(targets, snps = NULL, genome = genome_version, hrd_model = hrd_model)
+    return(list(gis_table = gis_table, targets = targets))
   }
   
   message("Computing GIS...")
