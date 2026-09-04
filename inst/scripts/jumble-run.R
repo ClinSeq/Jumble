@@ -39,9 +39,17 @@ option_list <- list(
         type = "character", default = "optim",
         help = "Correction method to use: 'optim' (L1+TV, default) or 'rlm' (Robust LM)", metavar = "METHOD"
     ),
+    make_option(c("-p", "--prefix"),
+        type = "character", default = NULL,
+        help = "Prefix for output filenames [default: input BAM/counts basename]", metavar = "STR"
+    ),
     make_option("--exclude-long-fragments",
         action = "store_true", default = FALSE,
         help = "Exclude long fragments (>300bp) from depth signal, using only fragments ≤300bp. Recommended for clipoverlap BAMs."
+    ),
+    make_option(c("-V", "--version"),
+        action = "store_true", default = FALSE,
+        help = "Print Jumble version and exit"
     )
 )
 
@@ -52,6 +60,11 @@ opt_parser <- OptionParser(
 )
 
 opt <- parse_args(opt_parser)
+
+if (isTRUE(opt$version)) {
+    cat("Jumble ", as.character(packageVersion("Jumble")), "\n", sep = "")
+    quit(save = "no", status = 0)
+}
 
 # Validate inputs
 if (is.null(opt$reference)) {
@@ -102,6 +115,9 @@ if (!is.null(opt$model)) {
     cat("Model:", opt$model, "\n")
 }
 cat("Output:", output_dir, "\n")
+if (!is.null(opt$prefix)) {
+    cat("Prefix:", opt$prefix, "\n")
+}
 cat("Alpha:", opt$alpha, "\n")
 cat("Correction:", opt$correction, "\n")
 if (isTRUE(opt[["exclude-long-fragments"]])) {
@@ -119,7 +135,8 @@ result <- run_jumble(
     alpha = opt$alpha,
     correction = opt$correction,
     hrd_model_file = opt$model,
-    exclude_long_fragments = isTRUE(opt[["exclude-long-fragments"]])
+    exclude_long_fragments = isTRUE(opt[["exclude-long-fragments"]]),
+    prefix = opt$prefix
 )
 
 cat("\n✓ Analysis complete\n")
@@ -127,7 +144,8 @@ cat("  - Segments:", nrow(result$segments), "\n")
 cat("  - X chromosome segments:", sum(result$segments$chromosome == "X", na.rm = TRUE), "\n")
 
 # List output files
-output_files <- list.files(output_dir, pattern = basename(tools::file_path_sans_ext(opt$bam)), full.names = FALSE)
+output_pattern <- if (!is.null(opt$prefix)) opt$prefix else basename(tools::file_path_sans_ext(opt$bam))
+output_files <- list.files(output_dir, pattern = output_pattern, full.names = FALSE)
 cat("\nOutput files:\n")
 for (f in output_files) {
     cat("  -", f, "\n")

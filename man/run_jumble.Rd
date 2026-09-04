@@ -15,6 +15,7 @@ run_jumble(
   correction = "optim",
   hrd_model_file = NULL,
   exclude_long_fragments = FALSE,
+  prefix = NULL,
   ...
 )
 }
@@ -41,6 +42,10 @@ run_jumble(
 instead of count (all fragments) as the main depth signal. Set to TRUE when
 using clipoverlap BAMs where the midpoint calculation may be affected by
 TLEN inflation from overlap clipping.}
+
+\item{prefix}{Optional prefix for output filenames. When supplied, it replaces
+the sample name derived from the input BAM/counts basename, so results are
+written as \code{<prefix>.jumble.csv}, \code{<prefix>.png}, etc.}
 
 \item{...}{Additional arguments.}
 }
