@@ -5,7 +5,8 @@ LABEL org.opencontainers.image.title="Jumble" \
       org.opencontainers.image.source="https://github.com/ClinSeq/Jumble" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
-# System libraries for Rsamtools/bamsignals (htslib) and curl/xml based Bioconductor deps
+# System libraries for Rsamtools/bamsignals (htslib) and curl/xml based Bioconductor deps.
+# pandoc is the rendering backend rmarkdown needs to build the Frankenplot HTML report.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
         libssl-dev \
@@ -13,6 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g-dev \
         libbz2-dev \
         liblzma-dev \
+        pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/Jumble
