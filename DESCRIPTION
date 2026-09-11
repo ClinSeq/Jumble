@@ -1,7 +1,7 @@
 Package: Jumble
 Type: Package
 Title: Copy Number Analysis of Short Read Sequencing Data
-Version: 0.5.5
+Version: 0.5.6
 Authors@R: c(
     person("Markus", "Mayrhofer", email = "markus.mayrhofer@ki.se", role = c("aut", "cre")),
     person("Johan", "Lindberg", role = "aut"),
@@ -39,12 +39,12 @@ Imports:
     S4Vectors,
     ggrepel,
     IRanges,
-    httr
-Suggests: 
-    BSgenome.Hsapiens.UCSC.hg38,
-    randomForest,
-    testthat,
+    httr,
     knitr,
     rmarkdown
+Suggests:
+    BSgenome.Hsapiens.UCSC.hg38,
+    randomForest,
+    testthat
 Depends: 
     R (>= 3.5)

@@ -839,6 +839,9 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 #'   instead of count (all fragments) as the main depth signal. Set to TRUE when
 #'   using clipoverlap BAMs where the midpoint calculation may be affected by
 #'   TLEN inflation from overlap clipping.
+#' @param prefix Optional prefix for output filenames. When supplied, it replaces
+#'   the sample name derived from the input BAM/counts basename, so results are
+#'   written as \code{<prefix>.jumble.csv}, \code{<prefix>.png}, etc.
 #' @param ... Additional arguments.
 #' @return A list containing results (targets, segments, etc.).
 #' @importFrom data.table fread fwrite
@@ -847,7 +850,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 run_jumble <- function(bam_file, reference_file, output_dir = ".",
                        snp_vcf = NULL, somatic_vcf = NULL, cores = 1,
                        genome = NULL, correction = "optim", hrd_model_file = NULL,
-                       exclude_long_fragments = FALSE, ...) {
+                       exclude_long_fragments = FALSE, prefix = NULL, ...) {
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   
   hrd_model <- NULL
@@ -936,9 +939,13 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   segments <- seg_result$segments
   
   # Determine sample name
-  sample_name <- basename(bam_file)
-  sample_name <- sub("\\.counts\\.RDS$", "", sample_name, ignore.case = TRUE)
-  sample_name <- sub("\\.bam$", "", sample_name, ignore.case = TRUE)
+  if (!is.null(prefix) && nzchar(prefix)) {
+    sample_name <- prefix
+  } else {
+    sample_name <- basename(bam_file)
+    sample_name <- sub("\\.counts\\.RDS$", "", sample_name, ignore.case = TRUE)
+    sample_name <- sub("\\.bam$", "", sample_name, ignore.case = TRUE)
+  }
   
   # 9. Compute GIS
   gis_result <- compute_gis_and_maf(targets, snp_table, reference, hrd_model = hrd_model)
