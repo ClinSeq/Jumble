@@ -98,15 +98,15 @@ if ("gene" %in% names(bins_t)) {
 cancergenes <- data.table(gene = label_genes, symbol = label_genes)
 cancergenes[, gene_class := as.character(NA)]
 try({
-  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
-  if (cgc_path != "" && file.exists(cgc_path)) {
-    cgc <- data.table::fread(cgc_path)
-    if (all(c("hugo_symbol", "alteration") %in% names(cgc))) {
-      cgc[, gene_class := fifelse(alteration == "amp", "O",
+  cancer_genes_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
+  if (cancer_genes_path != "" && file.exists(cancer_genes_path)) {
+    cancer_gene_table <- data.table::fread(cancer_genes_path)
+    if (all(c("hugo_symbol", "alteration") %in% names(cancer_gene_table))) {
+      cancer_gene_table[, gene_class := fifelse(alteration == "amp", "O",
                             fifelse(alteration == "del", "T", NA_character_))]
-      cgc <- cgc[!is.na(gene_class), .(gene = hugo_symbol, gene_class)]
-      cgc <- unique(cgc, by = "gene")
-      cancergenes[cgc, gene_class := i.gene_class, on = "gene"]
+      cancer_gene_table <- cancer_gene_table[!is.na(gene_class), .(gene = hugo_symbol, gene_class)]
+      cancer_gene_table <- unique(cancer_gene_table, by = "gene")
+      cancergenes[cancer_gene_table, gene_class := i.gene_class, on = "gene"]
     }
   }
 }, silent = TRUE)

@@ -42,15 +42,15 @@ fetch_ensembl_data <- function(mart, genome, attributes, type = "genes") {
 #' Process Local Cancer Genes
 #' @keywords internal
 process_cancer_genes <- function(allgenes) {
-  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
-  if (cgc_path == "") cgc_path <- "inst/extdata/cancer_genes.csv"
+  cancer_genes_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
+  if (cancer_genes_path == "") cancer_genes_path <- "inst/extdata/cancer_genes.csv"
   
-  if (!file.exists(cgc_path)) {
+  if (!file.exists(cancer_genes_path)) {
     warning("cancer_genes.csv not found. Returning empty table.")
     return(data.table(hugo_symbol = character(), ensembl_gene_id_version = character(), ANNOT = character(), chromosome = character(), start = integer(), end = integer()))
   }
   
-  cgenes <- fread(cgc_path)
+  cgenes <- fread(cancer_genes_path)
   if (!all(c("hugo_symbol", "alteration") %in% names(cgenes))) return(data.table())
   
   cgenes[, ANNOT := "AMBI"]
