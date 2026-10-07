@@ -2,7 +2,7 @@ FROM rocker/r-ver:4.4.2
 
 LABEL org.opencontainers.image.title="Jumble" \
       org.opencontainers.image.description="Copy number analysis of short read sequencing data" \
-      org.opencontainers.image.source="https://github.com/ClinSeq/Jumble" \
+      org.opencontainers.image.source="https://github.com/ClinSeq/JumbleCNV" \
       org.opencontainers.image.licenses="GPL-3.0-or-later"
 
 # System libraries for Rsamtools/bamsignals (htslib) and curl/xml based Bioconductor deps
@@ -24,10 +24,10 @@ RUN Rscript -e 'install.packages("pak", repos = sprintf("https://r-lib.github.io
     && Rscript -e 'pak::local_install_deps(dependencies = "hard")' \
     && rm -rf /tmp/* /root/.cache
 
-# 2. Install the Jumble package itself
+# 2. Install the JumbleCNV package itself
 COPY . .
 RUN R CMD INSTALL --no-multiarch --without-keep.source . \
-    && Rscript -e 'library(Jumble)' \
+    && Rscript -e 'library(JumbleCNV)' \
     && chmod +x /usr/local/lib/R/site-library/Jumble/scripts/*.R
 
 # Command-line wrappers (jumble-run.R, jumble-count.R, ...) on PATH

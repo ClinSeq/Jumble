@@ -1,9 +1,9 @@
 #!/usr/bin/env Rscript
-# Jumble Run - Command-line wrapper for run_jumble()
+# JumbleCNV Run - Command-line wrapper for run_jumble()
 # Usage: Rscript jumble-run.R -r <reference_file> -b <input_bam_file> -o <output_dir>
 
 suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(Jumble))
+suppressPackageStartupMessages(library(JumbleCNV))
 
 # Define command-line options
 option_list <- list(

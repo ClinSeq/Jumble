@@ -5,7 +5,6 @@
 .Ruserdata
 .DS_Store
 */.DS_Store
-.Rbuildignore
 .Rprofile
 
 # Large Data & Inputs
@@ -20,6 +19,9 @@
 *.RDS
 *.pdf
 *.png
+*.tar.gz
+*.Rcheck/
+*.BiocCheck/
 
 # Allow package test data
 !inst/testdata/
@@ -32,10 +34,13 @@ local_dev/
 .cursorrules
 AGENTS.md
 .roo/
+renv/
+renv.lock
 
 # Editor
 .vscode/
 /doc/
+/docs/
 /Meta/
 
 # Always ignore macOS metadata (must be after !inst negations so last-match wins)

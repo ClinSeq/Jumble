@@ -1,9 +1,9 @@
 library(testthat)
-library(Jumble)
+library(JumbleCNV)
 
 test_that("SNP processing works with VCF file", {
   # Use package test data
-  testdata_dir <- system.file("testdata", package = "Jumble")
+  testdata_dir <- system.file("testdata", package = "JumbleCNV")
   if (testdata_dir == "") testdata_dir <- "inst/testdata" # For development
 
   ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")
@@ -39,7 +39,7 @@ test_that("SNP processing works with VCF file", {
 
 test_that("Pipeline works without SNP VCF", {
   # Use package test data
-  testdata_dir <- system.file("testdata", package = "Jumble")
+  testdata_dir <- system.file("testdata", package = "JumbleCNV")
   if (testdata_dir == "") testdata_dir <- "inst/testdata" # For development
 
   ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")

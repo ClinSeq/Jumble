@@ -42,7 +42,7 @@ fetch_ensembl_data <- function(mart, genome, attributes, type = "genes") {
 #' Process Local Cancer Genes
 #' @keywords internal
 process_cancer_genes <- function(allgenes) {
-  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "Jumble")
+  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
   if (cgc_path == "") cgc_path <- "inst/extdata/cancer_genes.csv"
   
   if (!file.exists(cgc_path)) {
@@ -206,7 +206,7 @@ calculate_gc_content <- function(targets, ucsc_ranges, genome) {
 #' @importFrom data.table as.data.table setnames :=
 load_cytobands <- function(genome) {
   filename <- if (genome == "hg19") "cytoband_hg19.rds" else "cytoband_hg38.rds"
-  path <- system.file("extdata", filename, package = "Jumble")
+  path <- system.file("extdata", filename, package = "JumbleCNV")
   if (path == "") path <- file.path("inst/extdata", filename)
   if (!file.exists(path)) { 
     warning("Cytoband file not found: ", filename)
@@ -253,7 +253,7 @@ build_reference <- function(count_files, annotation_source = "biomart", genome =
   cf_data <- load_count_files(count_files)
   
   # 2. Determine Genome
-  unique_genomes <- unique(na.omit(cf_data$detected_genomes))
+  unique_genomes <- unique(stats::na.omit(cf_data$detected_genomes))
   if (is.null(genome)) {
     genome <- if (length(unique_genomes) == 1) unique_genomes else "hg19"
   }

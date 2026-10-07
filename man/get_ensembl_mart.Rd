@@ -6,6 +6,9 @@
 \usage{
 get_ensembl_mart(genome, mirror = NULL)
 }
+\value{
+A biomaRt Mart object.
+}
 \description{
 Get Ensembl Mart Setup
 }

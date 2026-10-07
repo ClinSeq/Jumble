@@ -1,4 +1,4 @@
-# Jumble Testing Strategy
+# JumbleCNV Testing Strategy
 
 Jumble uses a three-tier testing architecture. For the full description see `.roo/TESTING.md`.
 
@@ -86,7 +86,7 @@ Jumble/
 
 ### Adding Package Tests
 1. Add new test logic to `tests/testthat/test-*.R`
-2. Programmatically load data via `system.file("testdata", package = "Jumble")`
+2. Programmatically load data via `system.file("testdata", package = "JumbleCNV")`
 3. Keep the file sizes of any new test artifacts minimal to avoid bloating the R package distribution.
 
 ### After Code Changes

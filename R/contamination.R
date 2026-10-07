@@ -13,7 +13,7 @@ load_contamination_model <- function() {
     return(.jumble_contam_env$model)
   }
 
-  model_path <- system.file("extdata", "contamination_rf.RDS", package = "Jumble")
+  model_path <- system.file("extdata", "contamination_rf.RDS", package = "JumbleCNV")
   if (model_path == "" || !file.exists(model_path)) {
     return(NULL)
   }

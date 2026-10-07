@@ -3,7 +3,7 @@
 #' Rebuilds target data.table from reference allcounts and template
 #'
 #' @param reference Reference object with allcounts and target_template
-#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#' @param exclude_long_fragments If TRUE, use count_medium (<=300bp) instead of
 #'   count (all fragments) as the main depth signal. Excludes long fragments
 #'   that may be affected by TLEN inflation in clipoverlap BAMs.
 #' @return data.table with reconstructed targets from all reference samples
@@ -67,7 +67,7 @@ filter_bins_by_coverage <- function(targets) {
     group_median <- median(bin_medians$m, na.rm = TRUE)
     if (!is.finite(group_median)) next
 
-    # Low coverage threshold (10% of within-group median — removes noisy bins)
+    # Low coverage threshold (10% of within-group median - removes noisy bins)
     threshold_low <- group_median * 0.10
     if (is.finite(threshold_low)) {
       bin_medians <- bin_medians[m > threshold_low]
@@ -234,7 +234,7 @@ impute_missing_logr <- function(targets, lr_col) {
   # Ensure we have a proper copy (avoids data.table shallow copy warning)
   targets <- data.table::copy(targets)
   targets[is.na(get(lr_col)), 
-          (lr_col) := rnorm(.N, mean = 0, sd = 0.01)]
+          (lr_col) := stats::rnorm(.N, mean = 0, sd = 0.01)]
   targets
 }
 
@@ -338,8 +338,8 @@ get_bins_by_type <- function(target_template, is_target_bool, valid_bins = NULL)
 #' @details
 #' This function implements the core normalization innovation in Jumble. Rather
 #' than using standard linear regression (OLS or robust) to remove PCA
-#' components — which assumes Gaussian residuals and can over-correct focal
-#' copy number alterations — this method uses an **L1 norm + Total Variation
+#' components - which assumes Gaussian residuals and can over-correct focal
+#' copy number alterations - this method uses an **L1 norm + Total Variation
 #' (TV) penalty** formulation.
 #'
 #' **Objective function:**
@@ -386,7 +386,7 @@ correct_by_optim <- function(data, ratio = 1.0) {
   lr_vec <- data$lr
 
   # Filter out NAs for optimization stability
-  keep <- is.finite(lr_vec) & complete.cases(pc_mat)
+  keep <- is.finite(lr_vec) & stats::complete.cases(pc_mat)
   pc_mat_opt <- pc_mat[keep, , drop = FALSE]
   lr_vec_opt <- lr_vec[keep]
 
@@ -431,11 +431,12 @@ correct_by_pca <- function(data, train_indices = NULL) {
     train_indices <- rep(TRUE, nrow(data))
   }
   
-  # Subsample if too large
+  # Deterministically thin very large training sets for stable runtime.
   if (is.logical(train_indices) && length(which(train_indices)) > 20000) {
-    train_indices <- sample(which(train_indices), 20000)
+    train_indices <- which(train_indices)
+    train_indices <- train_indices[seq(1, length(train_indices), length.out = 20000)]
   } else if (!is.logical(train_indices) && length(train_indices) > 20000) {
-    train_indices <- sample(train_indices, 20000)
+    train_indices <- train_indices[seq(1, length(train_indices), length.out = 20000)]
   }
   
   # Count PCs
@@ -448,7 +449,7 @@ correct_by_pca <- function(data, train_indices = NULL) {
   # Robust linear regression
   rlm_mod <- tryCatch(
     {
-      MASS::rlm(as.formula(formula_str), data = data, subset = train_indices)
+      MASS::rlm(stats::as.formula(formula_str), data = data, subset = train_indices)
     },
     error = function(e) NULL
   )
@@ -492,10 +493,9 @@ correct_by_gc <- function(data, train_indices = NULL, span = 0.75) {
   n_points <- length(train_indices_clean)
   if (n_points <= 5) return(data$lr)
   
-  # Subsample if too many points (loess scales poorly)
+  # Deterministically thin large inputs because loess scales poorly.
   if (n_points > 10000) {
-    set.seed(42)
-    train_indices_clean <- sample(train_indices_clean, 10000)
+    train_indices_clean <- train_indices_clean[seq(1, n_points, length.out = 10000)]
     n_points <- 10000
   }
   
@@ -671,7 +671,7 @@ cleanup_temp_columns <- function(targets, cols_to_remove) {
 #' Performs PCA on reference dataset to identify latent features for normalization.
 #'
 #' @param reference The reference object.
-#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#' @param exclude_long_fragments If TRUE, use count_medium (<=300bp) instead of
 #'   count (all fragments) as the main depth signal.
 #' @return A list containing PCA results for targets and background.
 #' @importFrom stats prcomp sd
@@ -719,7 +719,6 @@ compute_reference_pca <- function(reference, exclude_long_fragments = FALSE) {
   backgroundbins <- get_bins_by_type(target_template, FALSE, mat$bin)
   
   # 9. Perform PCA for latent factors
-  set.seed(25)
   tpca <- perform_pca_on_bins(mat, targetbins)
   tpca_short <- perform_pca_on_bins(mat_short, targetbins)
   bgpca <- perform_pca_on_bins(mat, backgroundbins)

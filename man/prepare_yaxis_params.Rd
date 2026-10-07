@@ -4,7 +4,7 @@
 \alias{prepare_yaxis_params}
 \title{Prepare Y-Axis Parameters}
 \usage{
-prepare_yaxis_params(targets, segments = NULL)
+prepare_yaxis_params(targets)
 }
 \arguments{
 \item{targets}{data.table with smooth_log2 column}

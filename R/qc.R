@@ -21,7 +21,7 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
                                contamination = NA_real_,
                                snp_table = NULL,
                                somatic = NULL) {
-  # ── 1. Identity & Input Files ──────────────────────────────────────────────
+  # -- 1. Identity & Input Files ----------------------------------------------
   sample_name <- if (!is.null(sample_name)) sample_name else NA_character_
   qc <- data.table(
     sample         = sample_name,
@@ -31,7 +31,7 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
     somatic_vcf    = if (!is.null(somatic_vcf)) basename(somatic_vcf) else NA_character_
   )
 
-  # ── 2. Technical QC (always computable from counts) ────────────────────────
+  # -- 2. Technical QC (always computable from counts) ------------------------
   target_bins <- targets[is_target == TRUE]
 
   # Median target count
@@ -50,7 +50,7 @@ compute_qc_metrics <- function(targets, bam_file, reference_file,
   # Waviness
   qc$waviness <- compute_waviness(target_bins)
 
-  # ── 3. Computed Estimates (require VCF inputs) ─────────────────────────────
+  # -- 3. Computed Estimates (require VCF inputs) -----------------------------
   # Het/hom SNPs and sex (require snp_table + targets)
   snp_stats <- compute_snp_stats(snp_table, targets)
   qc$het_snps      <- snp_stats$het_snps
@@ -235,7 +235,7 @@ compute_snp_stats <- function(snp_table, targets) {
   # Require >= 100 target bins on chrX to attempt
   chrom_clean <- stringr::str_remove(as.character(targets$chromosome), "^chr")
 
-  # Pseudoautosomal regions (excluded — they behave like autosomes)
+  # Pseudoautosomal regions (excluded - they behave like autosomes)
   # PAR1 hg19: chrX:60001-2699520,    PAR2 hg19: chrX:154931044-155260560
   # PAR1 hg38: chrX:10001-2781479,    PAR2 hg38: chrX:155701383-156030895
   # Use the union of both genome builds for robustness

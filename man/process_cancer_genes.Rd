@@ -6,6 +6,9 @@
 \usage{
 process_cancer_genes(allgenes)
 }
+\value{
+A data.table containing display-gene metadata joined to gene coordinates.
+}
 \description{
 Process Local Cancer Genes
 }

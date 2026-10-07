@@ -24,6 +24,7 @@ params:
   dpyd_table: NULL
   genome: "hg19"
   sample_name: "Sample"
+  output_png: NULL
 editor_options:
   chunk_output_type: console
 ---
@@ -65,13 +66,14 @@ dpyd_result <- params$dpyd_result
 dpyd_table  <- params$dpyd_table
 genome     <- params$genome
 sample_name <- params$sample_name
+output_png <- params$output_png
 has_normal <- !is.null(bins_n)
 
 noise <- function(data) {
   m <- median(abs(diff(data)), na.rm = TRUE)
   round(100 * (2^m - 1), 2)
 }
-label_genes <- Jumble:::frankenplot_cancer_genes()
+label_genes <- JumbleCNV:::frankenplot_cancer_genes()
 ```
 
 ```{r prepare_data, include=FALSE}
@@ -96,7 +98,7 @@ if ("gene" %in% names(bins_t)) {
 cancergenes <- data.table(gene = label_genes, symbol = label_genes)
 cancergenes[, gene_class := as.character(NA)]
 try({
-  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "Jumble")
+  cgc_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
   if (cgc_path != "" && file.exists(cgc_path)) {
     cgc <- data.table::fread(cgc_path)
     if (all(c("hugo_symbol", "alteration") %in% names(cgc))) {
@@ -987,6 +989,22 @@ if (!wgs) {
          p_tumor$nogrid + p_tumor$grid +
          plot_layout(design = layout, guides = "collect")
 }
+if (!is.null(output_png) && !is.na(output_png) && nzchar(output_png)) {
+  png_layout <- "ABBBB
+                 CDDDD
+                 EFFFF"
+  png_fig <- p_tumor$gc_rawdepth + p_tumor$pos_rawdepth +
+             p_tumor$gc_log2 + p_tumor$pos_log2 +
+             p_tumor$depth_alleleratio + p_tumor$pos_alleleratio +
+             plot_layout(design = png_layout, guides = "collect")
+
+  grDevices::png(filename = output_png, width = 14, height = 8, units = "in", res = 150)
+  tryCatch(
+    print(png_fig + pa),
+    finally = grDevices::dev.off()
+  )
+}
+
 print(fig + pa)
 ```
 
@@ -1033,7 +1051,7 @@ if (!is.null(hrdtable) && nrow(hrdtable) > 0) {
   # Print GIS model coefficients only when GIS data was provided.
   try({
     cat("\nGIS model coefficients:\n")
-    print(as.data.table(Jumble::gis_model(NULL)))
+    print(as.data.table(JumbleCNV::gis_model(NULL)))
   }, silent = TRUE)
 
   cat("\nPredicted GIS by fraction:\n")

@@ -1,10 +1,10 @@
 #!/usr/bin/env Rscript
-# Jumble Count - Command-line wrapper for generate_counts()
+# JumbleCNV Count - Command-line wrapper for generate_counts()
 # Usage: Rscript jumble-count.R -t <target_BED_file> -b <input_bam_file>
 #    or: Rscript jumble-count.R -t <target_BED_file> -c <cores>
 
 suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(Jumble))
+suppressPackageStartupMessages(library(JumbleCNV))
 
 # Define command-line options
 option_list <- list(

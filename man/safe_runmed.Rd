@@ -6,6 +6,9 @@
 \usage{
 safe_runmed(x, k)
 }
+\value{
+A numeric vector containing running-median smoothed values.
+}
 \description{
 Safe runmed helper
 }

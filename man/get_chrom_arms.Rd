@@ -6,6 +6,9 @@
 \usage{
 get_chrom_arms(genome = "hg19")
 }
+\value{
+A data.table containing chromosome arm coordinates.
+}
 \description{
 Get Chromosome Arms
 }

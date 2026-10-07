@@ -1,5 +1,5 @@
 # ============================================================================
-# Frankenplot — Standalone genome report for Jumble output files
+# Frankenplot - Standalone genome report for Jumble output files
 # ============================================================================
 
 # ---------------------------------------------------------------------------
@@ -76,7 +76,7 @@ fp_standardize_chrom_col <- function(dt, col = "chromosome") {
 #'
 #' @param vcf A VCF object (VariantAnnotation).
 #' @param sample_hint Optional hint for sample name (exact/fuzzy match).
-#' @param role Either "tumor" or "normal" — which sample to return.
+#' @param role Either "tumor" or "normal" - which sample to return.
 #' @return Integer index of the selected sample column.
 #' @keywords internal
 fp_select_snp_sample <- function(vcf, sample_hint = NULL, role = "tumor") {
@@ -373,7 +373,7 @@ fp_parse_vep_csq <- function(vcf, dt) {
 
 
 # ---------------------------------------------------------------------------
-# Annotate hotspots — uses package bundled hotspot data
+# Annotate hotspots - uses package bundled hotspot data
 # ---------------------------------------------------------------------------
 #' Annotate hotspot status using package hotspot data
 #'
@@ -390,14 +390,14 @@ fp_annotate_hotspots <- function(dt, genome = "hg19") {
 
   hotspots_loaded <- FALSE
   tryCatch({
-    data("hotspots_snvs", package = "Jumble", envir = environment())
-    data("hotspots_inframes", package = "Jumble", envir = environment())
+    data("hotspots_snvs", package = "JumbleCNV", envir = environment())
+    data("hotspots_inframes", package = "JumbleCNV", envir = environment())
 
     if (genome == "hg38") {
-      data("hotspots_splice_hg38", package = "Jumble", envir = environment())
+      data("hotspots_splice_hg38", package = "JumbleCNV", envir = environment())
       if (exists("hotspots_splice_hg38")) hotspots_splice <- hotspots_splice_hg38
     } else {
-      data("hotspots_splice_hg19", package = "Jumble", envir = environment())
+      data("hotspots_splice_hg19", package = "JumbleCNV", envir = environment())
       if (exists("hotspots_splice_hg19")) hotspots_splice <- hotspots_splice_hg19
     }
     if (exists("hotspots_snvs") && exists("hotspots_inframes")) hotspots_loaded <- TRUE
@@ -481,7 +481,7 @@ fp_parse_germline_vcf <- function(vcf_file, tumor_sample_name = NULL,
 
     samples <- colnames(vcf)
 
-    # Determine normal and tumor indices — original logic:
+    # Determine normal and tumor indices - original logic:
     # If -N- or NORMAL is in column 2, swap so normal is column 1
     normal_idx <- 1L
     tumor_idx <- NULL
@@ -547,7 +547,7 @@ fp_parse_germline_vcf <- function(vcf_file, tumor_sample_name = NULL,
       galf[, DP := NA_real_]
     }
 
-    # Tumor AF (for blue overlay — from tumor_idx column)
+    # Tumor AF (for blue overlay - from tumor_idx column)
     galf[, AF_t := NA_real_]
     if (!is.null(tumor_idx) && !is.null(g$AD) && !is.null(g$DP)) {
       galf$AF_t <- as.numeric(sapply(g$AD[, tumor_idx], "[", 2)) / as.numeric(g$DP[, tumor_idx])
@@ -852,8 +852,13 @@ fp_parse_dpyd <- function(dpyd_json = NULL, dpyd_csv = NULL) {
 #' @param genome Genome build version ("hg19" or "hg38"). Auto-detected if NULL.
 #' @param hrdtable Precomputed GIS/HRD table to display in the report (optional).
 #'   Frankenplot does not compute GIS internally.
+#' @param qc_file Path to a Jumble QC CSV file (optional).
+#' @param qc_metrics QC metrics object supplied directly (optional).
 #' @param dpyd_json Path to DPYD JSON result file (optional).
 #' @param dpyd_csv Path to DPYD CSV evidence file (optional).
+#' @param output_png Path for the static tumor overview PNG. If \code{NULL},
+#'   the path is derived from \code{output_file}. Use \code{NA} or an empty
+#'   string to disable PNG creation.
 #'
 #' @return Invisibly returns the path to the generated HTML report.
 #'
@@ -880,7 +885,8 @@ fp_parse_dpyd <- function(dpyd_json = NULL, dpyd_csv = NULL) {
 #'   tumor_cns = "sample.cns",
 #'   output_file = "sample_frankenplot.html",
 #'   tumor_snp_vcf = "sample.snp.vcf.gz",
-#'   somatic_vcf = "sample.somatic.vcf.gz"
+#'   somatic_vcf = "sample.somatic.vcf.gz",
+#'   output_png = "sample_frankenplot.png"
 #' )
 #' }
 #'
@@ -901,7 +907,8 @@ frankenplot <- function(tumor_jumble_csv,
                         qc_file = NULL,
                         qc_metrics = NULL,
                         dpyd_json = NULL,
-                        dpyd_csv = NULL) {
+                        dpyd_csv = NULL,
+                        output_png = NULL) {
 
   # ---- Input validation ----
   if (missing(tumor_jumble_csv) || !file.exists(tumor_jumble_csv)) {
@@ -912,6 +919,20 @@ frankenplot <- function(tumor_jumble_csv,
   }
   if (missing(output_file)) {
     stop("output_file is required.")
+  }
+
+  # Derive the static tumor overview PNG path unless explicitly disabled.
+  if (is.null(output_png)) {
+    output_png <- sub("\\.html?$", ".png", output_file, ignore.case = TRUE)
+    if (identical(output_png, output_file)) {
+      output_png <- paste0(output_file, ".png")
+    }
+  }
+  if (length(output_png) > 1) {
+    stop("output_png must be a single file path, NA, an empty string, or NULL.")
+  }
+  if (length(output_png) == 0 || is.na(output_png) || !nzchar(output_png)) {
+    output_png <- NULL
   }
 
   # Validate optional file arguments
@@ -956,6 +977,7 @@ frankenplot <- function(tumor_jumble_csv,
   message("Tumor CNS: ", tumor_cns)
   if (has_normal) message("Normal CSV: ", normal_jumble_csv)
   message("Genome: ", genome)
+  if (!is.null(output_png)) message("Static PNG: ", output_png)
 
   # ---- 1. Read tumor copy number data ----
   message("Reading tumor copy number data...")
@@ -1096,7 +1118,8 @@ frankenplot <- function(tumor_jumble_csv,
     dpyd_table = dpyd_data$dpyd_table,
     genome = genome,
     output_file = output_file,
-    tumor_jumble_csv = tumor_jumble_csv
+    tumor_jumble_csv = tumor_jumble_csv,
+    output_png = output_png
   )
 
   message("Frankenplot report generated: ", output_file)
@@ -1128,16 +1151,18 @@ frankenplot <- function(tumor_jumble_csv,
 #' @param genome Genome build string.
 #' @param output_file Output HTML path.
 #' @param tumor_jumble_csv Path to tumor CSV (for title).
+#' @param output_png Output PNG path for the static tumor overview plot, or NULL.
 #' @keywords internal
 fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
                               alf, alf_n, salf, galf_t, galf_n,
                               hrdtable, qc_metrics, dpyd_result, dpyd_table,
-                              genome, output_file, tumor_jumble_csv) {
+                              genome, output_file, tumor_jumble_csv,
+                              output_png = NULL) {
 
   # Find the Rmd template
   template_path <- system.file(
     "rmarkdown", "templates", "frankenplot", "skeleton", "skeleton.Rmd",
-    package = "Jumble"
+    package = "JumbleCNV"
   )
   if (template_path == "" || !file.exists(template_path)) {
     # Fallback for development
@@ -1145,7 +1170,7 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
                                 "frankenplot", "skeleton", "skeleton.Rmd")
   }
   if (!file.exists(template_path)) {
-    stop("Frankenplot Rmd template not found. Is the Jumble package installed correctly?")
+    stop("Frankenplot Rmd template not found. Is the JumbleCNV package installed correctly?")
   }
 
   # Derive sample name from tumor CSV filename
@@ -1153,9 +1178,15 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
   sample_name <- sub("\\.jumble\\.csv$", "", sample_name)
   sample_name <- sub("\\.csv$", "", sample_name)
 
-  # Ensure output directory exists
+  # Ensure output directories exist
   output_dir <- dirname(output_file)
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
+  if (!is.null(output_png)) {
+    png_dir <- dirname(output_png)
+    if (!identical(png_dir, ".") && !dir.exists(png_dir)) {
+      dir.create(png_dir, recursive = TRUE)
+    }
+  }
 
   # Render
   rmarkdown::render(
@@ -1177,7 +1208,8 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
       dpyd_result = dpyd_result,
       dpyd_table = dpyd_table,
       genome = genome,
-      sample_name = sample_name
+      sample_name = sample_name,
+      output_png = output_png
     ),
     envir = new.env(parent = globalenv()),
     quiet = TRUE

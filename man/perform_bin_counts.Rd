@@ -6,6 +6,9 @@
 \usage{
 perform_bin_counts(bam_file, ranges)
 }
+\value{
+A list containing total, short-fragment, medium-fragment, and flag-count vectors.
+}
 \description{
 Perform BAM Counting
 }
