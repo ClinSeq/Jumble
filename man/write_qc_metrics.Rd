@@ -11,6 +11,9 @@ write_qc_metrics(qc_metrics, output_file)
 
 \item{output_file}{Path to output CSV file.}
 }
+\value{
+Invisibly returns the written QC metrics table.
+}
 \description{
 Writes QC metrics to a CSV file.
 }

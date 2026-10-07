@@ -3,14 +3,14 @@
 #' @param reference_file Path to reference RDS file or reference object
 #' @return Reference object
 #' @keywords internal
-load_reference_data <- function(reference_file) {
+load_reference_data <- function(reference_file, annotation_mode = "auto") {
   if (is.character(reference_file)) {
     message("Loading reference: ", reference_file)
     reference <- readRDS(reference_file)
   } else {
     reference <- reference_file
   }
-  return(reference)
+  normalize_reference_object(reference, annotation_mode = annotation_mode)
 }
 
 #' Load or Generate Counts
@@ -113,7 +113,7 @@ generate_counts_from_bam <- function(bam_file, reference, output_dir) {
 #' @param reference Reference object
 #' @param counts Counts object
 #' @param bam_file BAM file path
-#' @param exclude_long_fragments If TRUE, use count_medium (≤300bp) instead of
+#' @param exclude_long_fragments If TRUE, use count_medium (<=300bp) instead of
 #'   count (all fragments) as the main depth signal.
 #' @return Targets data.table
 #' @keywords internal
@@ -168,8 +168,12 @@ annotate_tiled_bins <- function(targets) {
 #' @return Targets with gene annotations
 #' @keywords internal
 add_gene_annotations <- function(targets, reference) {
-  if (!is.null(reference$allgenes) && nrow(reference$allgenes) > 0) {
-    allgenes <- reference$allgenes
+  if (!"gene" %in% names(targets)) {
+    targets[, gene := ""]
+  }
+
+  allgenes <- reference_annotation_table(reference, "allgenes")
+  if (!is.null(allgenes)) {
     
     binranges <- GenomicRanges::makeGRangesFromDataFrame(targets,
                                                          seqnames.field = "chromosome",
@@ -204,12 +208,13 @@ add_gene_annotations <- function(targets, reference) {
 #' @keywords internal
 add_cytoband_annotations <- function(targets, reference) {
   targets[, band := ""]
-  if (!is.null(reference$cytobands) && nrow(reference$cytobands) > 0) {
+  cytobands <- reference_annotation_table(reference, "cytobands")
+  if (!is.null(cytobands)) {
     binranges <- GenomicRanges::makeGRangesFromDataFrame(targets,
                                                          seqnames.field = "chromosome",
                                                          start.field = "start", end.field = "end"
     )
-    cyto_gr <- GenomicRanges::makeGRangesFromDataFrame(reference$cytobands,
+    cyto_gr <- GenomicRanges::makeGRangesFromDataFrame(cytobands,
                                                        seqnames.field = "chromosome",
                                                        start.field = "start", end.field = "end",
                                                        keep.extra.columns = TRUE
@@ -219,7 +224,7 @@ add_cytoband_annotations <- function(targets, reference) {
     
     mapping <- data.table::data.table(
       bin_id = S4Vectors::queryHits(ov),
-      band = reference$cytobands$band[S4Vectors::subjectHits(ov)]
+      band = cytobands$band[S4Vectors::subjectHits(ov)]
     )
     mapping <- mapping[!is.na(band) & band != ""]
     
@@ -241,8 +246,8 @@ add_cytoband_annotations <- function(targets, reference) {
 #' @return Targets with exon annotations
 #' @keywords internal
 add_exon_annotations <- function(targets, reference) {
-  if (!is.null(reference$allexons) && nrow(reference$allexons) > 0) {
-    allexons <- reference$allexons
+  allexons <- reference_annotation_table(reference, "allexons")
+  if (!is.null(allexons)) {
     
     exons_dt <- unique(allexons[, .(
       id = `Gene stable ID`,
@@ -321,24 +326,17 @@ perform_segmentation <- function(targets, reference, alltargets) {
   alpha <- 0.01
   if (reference$target_bed_file == "wgs") alpha <- 1e-5
   
-  cancergenes <- if (!is.null(reference$cancergenes_clinseq)) {
-    reference$cancergenes_clinseq
-  } else {
-    NULL
-  }
-  
-  cancerexons <- if (!is.null(reference$allexons)) {
-    reference$allexons
-  } else {
-    NULL
-  }
+  cancergenes <- reference_annotation_table(reference, "cancergenes_clinseq")
+  cancerexons <- reference_annotation_table(reference, "allexons")
+  allgenes <- reference_annotation_table(reference, "allgenes")
+  cytobands <- reference_annotation_table(reference, "cytobands")
   
   seg_res <- segment_data(targets,
                           alpha = alpha,
                           cancergenes = cancergenes,
                           cancerexons = cancerexons,
-                          allgenes = reference$allgenes,
-                          cytobands = reference$cytobands
+                          allgenes = allgenes,
+                          cytobands = cytobands
   )
   targets <- seg_res$targets
   segments <- seg_res$segments
@@ -408,7 +406,7 @@ compute_gis_and_maf <- function(targets, snp_table, reference, hrd_model = NULL)
   }
   
   if (is.null(snp_table)) {
-    # No SNPs but custom HRD model provided — compute CNV-only GIS features
+    # No SNPs but custom HRD model provided - compute CNV-only GIS features
     targets[, maf := as.numeric(NA)]
     targets[, long_median := as.numeric(NA)]
     targets[, local_snp_bg := as.numeric(NA)]
@@ -676,6 +674,11 @@ save_analysis_results <- function(targets, segments, snp_table, gis_table, qc_me
 #' @param snp_table SNP table (needed for annotation)
 #' @keywords internal
 export_analysis_files <- function(targets, segments, output_dir, sample_name, reference, snp_table) {
+  allgenes <- reference_annotation_table(reference, "allgenes")
+  if (!"gene" %in% names(targets)) {
+    targets[, gene := ""]
+  }
+
   # Export CNR
   cnr <- targets[!is.na(log2), .(
     chromosome = as.character(chromosome),
@@ -735,7 +738,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
   
   # Export GENES
   tgt <- targets[is_target == TRUE]
-  if (!is.null(reference$allgenes) && nrow(tgt) > 0) {
+  if (!is.null(allgenes) && nrow(tgt) > 0 && nrow(segments) > 0) {
     # Map segmented CBS mean to bins via coordinate overlap (nearest for edge cases)
     tgt[, seg_mean := as.numeric(NA)]
     seg_gr <- GenomicRanges::makeGRangesFromDataFrame(segments,
@@ -748,7 +751,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
       tgt[valid_seg, seg_mean := segments$mean[seg_ov[valid_seg]]]
     }
                  
-    generanges <- GenomicRanges::makeGRangesFromDataFrame(reference$allgenes,
+    generanges <- GenomicRanges::makeGRangesFromDataFrame(allgenes,
                                                           seqnames.field = "Chromosome/scaffold name",
                                                           start.field = "Gene start (bp)", end.field = "Gene end (bp)")
     tranges <- GenomicRanges::makeGRangesFromDataFrame(tgt,
@@ -758,9 +761,9 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
     
     if (nrow(ov) > 0) {
       mapped <- tgt[ov$subjectHits]
-      mapped$gene_symbol <- reference$allgenes$`Gene name`[ov$queryHits]
-      mapped$gene_start <- reference$allgenes$`Gene start (bp)`[ov$queryHits]
-      mapped$gene_end <- reference$allgenes$`Gene end (bp)`[ov$queryHits]
+      mapped$gene_symbol <- allgenes$`Gene name`[ov$queryHits]
+      mapped$gene_start <- allgenes$`Gene start (bp)`[ov$queryHits]
+      mapped$gene_end <- allgenes$`Gene end (bp)`[ov$queryHits]
       
       safe_median <- function(x) if (length(x) == 0 || all(is.na(x))) as.numeric(NA) else median(x, na.rm = TRUE)
       safe_min <- function(x) if (length(x) == 0 || all(is.na(x))) as.numeric(NA) else min(x, na.rm = TRUE)
@@ -835,10 +838,14 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 #' @param genome Genome version.
 #' @param correction String indicating the method: "optim" (L1+TV, default) or "rlm" (Robust LM).
 #' @param hrd_model_file Optional path to a custom HRD model object (e.g. randomForest, glm, or function) saved as an RDS file. When supplied, a supplementary Custom HRD score is added to GIS output.
-#' @param exclude_long_fragments If TRUE, use count_medium (fragments ≤300bp)
+#' @param exclude_long_fragments If TRUE, use count_medium (fragments <=300bp)
 #'   instead of count (all fragments) as the main depth signal. Set to TRUE when
 #'   using clipoverlap BAMs where the midpoint calculation may be affected by
 #'   TLEN inflation from overlap clipping.
+#' @param annotation_mode Annotation handling mode. "auto" uses embedded
+#'   reference annotation when present and otherwise runs without annotation;
+#'   "none" always runs without annotation; "embedded" requires embedded
+#'   annotation in the reference.
 #' @param ... Additional arguments.
 #' @return A list containing results (targets, segments, etc.).
 #' @importFrom data.table fread fwrite
@@ -847,7 +854,7 @@ export_analysis_files <- function(targets, segments, output_dir, sample_name, re
 run_jumble <- function(bam_file, reference_file, output_dir = ".",
                        snp_vcf = NULL, somatic_vcf = NULL, cores = 1,
                        genome = NULL, correction = "optim", hrd_model_file = NULL,
-                       exclude_long_fragments = FALSE, ...) {
+                       exclude_long_fragments = FALSE, annotation_mode = "auto", ...) {
   if (!dir.exists(output_dir)) dir.create(output_dir, recursive = TRUE)
   
   hrd_model <- NULL
@@ -860,7 +867,7 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   }
   
   # 1. Load Reference
-  reference <- load_reference_data(reference_file)
+  reference <- load_reference_data(reference_file, annotation_mode = annotation_mode)
   
   # 2. Load or Generate Counts
   message("Generating counts for query sample...")
@@ -888,7 +895,7 @@ run_jumble <- function(bam_file, reference_file, output_dir = ".",
   }
 
   if (exclude_long_fragments) {
-    message("Using count_medium (≤300bp fragments) as main depth signal.")
+    message("Using count_medium (<=300bp fragments) as main depth signal.")
   }
   
   # 4. Reference PCA

@@ -6,6 +6,9 @@
 \usage{
 calculate_gc_content(targets, ucsc_ranges, genome)
 }
+\value{
+A data.table with GC-content values added for genomic bins.
+}
 \description{
 Calculate GC Content
 }

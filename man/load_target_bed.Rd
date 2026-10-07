@@ -6,6 +6,9 @@
 \usage{
 load_target_bed(target_bed)
 }
+\value{
+A data.table containing standardized target BED records.
+}
 \description{
 Load and Standardize BED File
 }

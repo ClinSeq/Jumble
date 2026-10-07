@@ -12,6 +12,9 @@ split_ranges_into_bins(dt_ranges, bin_size)
 
 \item{bin_size}{integer size of bins}
 }
+\value{
+A GRanges object containing split bins.
+}
 \description{
 Generic Range Splitter
 Splits ranges in a data.table into smaller fixed-size bins

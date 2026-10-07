@@ -6,6 +6,9 @@
 \usage{
 create_target_template(counts1, is_wgs, allcounts)
 }
+\value{
+A list containing the target template and reordered count objects.
+}
 \description{
 Create Target Template & Order Data
 }

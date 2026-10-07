@@ -1,9 +1,9 @@
 #!/usr/bin/env Rscript
-# Jumble Reference - Command-line wrapper for build_reference()
+# JumbleCNV Reference - Command-line wrapper for build_reference()
 # Usage: Rscript jumble-reference.R -i <counts_dir> -a <annotation_source> -o <output_file> -c <cores>
 
 suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(Jumble))
+suppressPackageStartupMessages(library(JumbleCNV))
 
 # Define command-line options
 option_list <- list(

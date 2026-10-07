@@ -6,6 +6,9 @@
 \usage{
 load_cytobands(genome)
 }
+\value{
+A data.table containing cytoband annotations.
+}
 \description{
 Load Cytobands
 }

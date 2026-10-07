@@ -1,34 +1,37 @@
-Package: Jumble
+Package: JumbleCNV
 Type: Package
 Title: Copy Number Analysis of Short Read Sequencing Data
-Version: 0.5.5
+Version: 0.6.0
 Authors@R: c(
     person("Markus", "Mayrhofer", email = "markus.mayrhofer@ki.se", role = c("aut", "cre")),
     person("Johan", "Lindberg", role = "aut"),
     person("Sarath", "Murugan", role = "aut")
   )
-Description: Jumble is a method for copy number analysis of short read sequencing data.
-    It provides functions for counting reads, building reference panels, and calling copy number alterations.
-URL: https://github.com/ClinSeq/jumble,
+Description: JumbleCNV provides copy number analysis workflows for short-read
+    sequencing data from targeted gene panels and whole-genome sequencing. It
+    supports read-count generation, reference-panel construction, normalization,
+    segmentation, quality-control summaries, and genomic instability scoring.
+    The package is designed for reproducible analysis of sequencing-derived copy
+    number profiles using Bioconductor genomic infrastructure.
+URL: https://github.com/ClinSeq/JumbleCNV,
     https://www.medrxiv.org/content/10.1101/2024.05.04.24306860v1
-License: GPL (>= 3)
+BugReports: https://github.com/ClinSeq/JumbleCNV/issues
+License: GPL-3
+BiocType: Software
 Encoding: UTF-8
-LazyData: true
 VignetteBuilder: knitr
-biocViews: Software, CopyNumberVariation, Sequencing, Coverage, WholeGenome, TargetedSequencing
+biocViews: Software, CopyNumberVariation, Sequencing, Coverage, WholeGenome, TargetedResequencing, DNASeq, VariantDetection, Normalization, QualityControl
 RoxygenNote: 7.3.2
 Imports: 
     bamsignals,
+    BiocGenerics,
     Biostrings,
-    BSgenome,
     BSgenome.Hsapiens.UCSC.hg19,
     data.table,
-    doParallel,
     GenomicRanges,
     ggplot2,
     MASS,
     patchwork,
-    optparse,
     DNAcopy,
     Rsamtools,
     stringr,
@@ -39,12 +42,20 @@ Imports:
     S4Vectors,
     ggrepel,
     IRanges,
-    httr
-Suggests: 
+    httr,
+    stats,
+    utils
+Suggests:
+    BSgenome,
     BSgenome.Hsapiens.UCSC.hg38,
+    BiocStyle,
+    doParallel,
+    jsonlite,
+    optparse,
     randomForest,
+    RJSONIO,
     testthat,
     knitr,
     rmarkdown
-Depends: 
-    R (>= 3.5)
+Depends:
+    R (>= 4.3.0)

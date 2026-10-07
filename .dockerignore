@@ -1,0 +1,14 @@
+.git
+.gitignore
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+.vscode
+.roo
+local_dev
+docs
+Dockerfile
+.dockerignore
+**/.DS_Store

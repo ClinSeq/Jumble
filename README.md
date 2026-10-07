@@ -1,4 +1,4 @@
-# Jumble
+# JumbleCNV
 
 **Copy Number Analysis of Short Read Sequencing Data**
 
@@ -25,7 +25,7 @@ Jumble is an R package for copy number analysis, offering functions for counting
 
 ```r
 # Install from GitHub
-devtools::install_github("ClinSeq/Jumble")
+devtools::install_github("ClinSeq/JumbleCNV")
 
 # Or install from a local clone
 devtools::install("/path/to/Jumble")
@@ -40,7 +40,7 @@ Generate binned read counts from your BAM files. This produces `.counts.RDS` fil
 
 **Targeted Sequencing (Gene Panel):**
 ```r
-library(Jumble)
+library(JumbleCNV)
 generate_counts(
   bam_file = "sample.bam",
   target_bed = "targets.bed"
@@ -89,6 +89,8 @@ print(head(results$targets))
 ### 4. Generate Frankenplot Report (Optional)
 Create an interactive HTML genome report from Jumble output files. GIS/HRD curves
 are displayed when a precomputed Jumble GIS table is supplied with `hrdtable`.
+The main tumor overview is also written as a static PNG for non-interactive
+review systems such as Curator.
 
 ```r
 gis_table <- data.table::fread("jumble_results/tumor_sample.jumble_gis.csv")
@@ -100,7 +102,8 @@ frankenplot(
   tumor_snp_vcf = "germline_snps.vcf.gz",       # Optional: SNP allele ratios
   somatic_vcf = "somatic_mutations.vcf.gz",      # Optional: somatic overlay
   germline_vcf = "germline_mutations.vcf.gz",    # Optional: germline overlay
-  hrdtable = gis_table                           # Optional: GIS/HRD curves
+  hrdtable = gis_table,                          # Optional: GIS/HRD curves
+  output_png = "tumor_sample_frankenplot.png"    # Optional: static tumor plot
 )
 ```
 
@@ -111,15 +114,16 @@ Jumble also includes wrapper scripts for pipeline integration:
 *   `jumble-run.R`: Run the full analysis.
 *   `jumble-frankenplot.R`: Generate a Frankenplot HTML report from Jumble output files.
 
-Find script locations with: `system.file("scripts", package = "Jumble")`
+Find script locations with: `system.file("scripts", package = "JumbleCNV")`
 
 Example Frankenplot wrapper call:
 
 ```sh
-Rscript $(Rscript -e 'cat(system.file("scripts", "jumble-frankenplot.R", package = "Jumble"))') \
+Rscript $(Rscript -e 'cat(system.file("scripts", "jumble-frankenplot.R", package = "JumbleCNV"))') \
   --jumble-csv jumble_results/tumor_sample.jumble.csv \
   --cns jumble_results/tumor_sample.cns \
   --output tumor_sample_frankenplot.html \
+  --output-png tumor_sample_frankenplot.png \
   --tumor-snp-vcf germline_snps.vcf.gz \
   --somatic-vcf somatic_mutations.vcf.gz \
   --hrdtable jumble_results/tumor_sample.jumble_gis.csv
@@ -145,7 +149,7 @@ Rscript $(Rscript -e 'cat(system.file("scripts", "jumble-frankenplot.R", package
 To verify your installation using the small dataset included in the package:
 
 ```r
-testdata_dir <- system.file("testdata", package = "Jumble")
+testdata_dir <- system.file("testdata", package = "JumbleCNV")
 ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")
 sample_file <- file.path(testdata_dir, "gene_panel/samples/test_sample_1.counts.RDS")
 
