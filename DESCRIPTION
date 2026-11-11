@@ -41,7 +41,8 @@ Imports:
     IRanges,
     httr,
     knitr,
-    rmarkdown
+    rmarkdown,
+    kableExtra
 Suggests:
     BSgenome.Hsapiens.UCSC.hg38,
     randomForest,

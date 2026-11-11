@@ -7,6 +7,7 @@ LABEL org.opencontainers.image.title="Jumble" \
 
 # System libraries for Rsamtools/bamsignals (htslib) and curl/xml based Bioconductor deps.
 # pandoc is the rendering backend rmarkdown needs to build the Frankenplot HTML report.
+# fontconfig/freetype are needed by kableExtra (via svglite/systemfonts) for the report tables.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libcurl4-openssl-dev \
         libssl-dev \
@@ -14,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zlib1g-dev \
         libbz2-dev \
         liblzma-dev \
+        libfontconfig1-dev \
+        libfreetype6-dev \
         pandoc \
     && rm -rf /var/lib/apt/lists/*
 
