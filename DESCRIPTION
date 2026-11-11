@@ -43,9 +43,12 @@ Imports:
     ggrepel,
     IRanges,
     httr,
-    stats,
-    utils
+    knitr,
+    rmarkdown,
+    kableExtra
 Suggests:
+    stats,
+    utils,
     BSgenome,
     BSgenome.Hsapiens.UCSC.hg38,
     BiocStyle,

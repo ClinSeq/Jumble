@@ -94,15 +94,26 @@ Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz
 Rscript jumble-run.R -r reference.RDS -b sample.bam -v germline.vcf.gz -s somatic.vcf.gz -o output/
 ```
 
+**With a custom output prefix:**
+```bash
+Rscript jumble-run.R -r reference.RDS -b sample.bam -o output/ -p tumor1
+# writes output/tumor1.jumble.csv, output/tumor1.qc.csv, output/tumor1.png, ...
+```
+
 **Options:**
 - `-r, --reference FILE`: Reference file (required)
 - `-b, --bam FILE`: Input BAM or .counts.RDS file (required)
 - `-v, --vcf FILE`: Germline SNP VCF file for GIS/LOH analysis (optional)
 - `-s, --somatic FILE`: Somatic VCF file for mutation overlay on plots (optional)
 - `-o, --output DIR`: Output directory [default: current directory]
+- `-p, --prefix STR`: Prefix for output filenames [default: input BAM/counts basename]
 - `-a, --alpha N`: Segmentation alpha parameter [default: 0.001]
+- `-V, --version`: Print Jumble version and exit
 
 **Output files:**
+
+`<sample>` below is the input BAM/counts basename, or the value of `--prefix` when given.
+
 - `<sample>.jumble.csv` - Normalized bin-level copy number data
 - `<sample>.jumble_snps.csv` - SNP/LOH data (if SNP VCF provided)
 - `<sample>.jumble_gis.csv` - GIS/HRD scores (if SNP VCF provided)

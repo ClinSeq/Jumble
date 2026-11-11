@@ -1188,11 +1188,14 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
     }
   }
 
-  # Render
+  # Render. knitr writes its intermediates next to the input by default, which fails when the
+  # template lives in a read-only package library (e.g. a container run as a non-root user), so
+  # keep them alongside the output instead.
   rmarkdown::render(
     input = template_path,
     output_file = basename(output_file),
     output_dir = output_dir,
+    intermediates_dir = output_dir,
     params = list(
       bins_t = bins_t,
       segments_t = segments_t,
