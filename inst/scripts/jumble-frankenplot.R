@@ -1,12 +1,17 @@
 #!/usr/bin/env Rscript
-# Jumble Frankenplot - Command-line wrapper for frankenplot()
+# JumbleCNV Frankenplot - Command-line wrapper for frankenplot()
 # Usage: Rscript jumble-frankenplot.R -j <tumor.jumble.csv> -c <tumor.cns> -o <output.html>
 
 suppressPackageStartupMessages(library(optparse))
-suppressPackageStartupMessages(library(Jumble))
+
+# Prefer the installed package, but allow source-checkout validation before
+# installation. This keeps wrapper tests active during local development.
+if (requireNamespace("JumbleCNV", quietly = TRUE)) {
+    suppressPackageStartupMessages(library(JumbleCNV))
+}
 
 # When this wrapper is run directly from an uninstalled source checkout, the
-# installed Jumble package may lag behind the source tree. Fall back to loading
+# installed JumbleCNV package may lag behind the source tree. Fall back to loading
 # the source checkout if the installed package does not yet export frankenplot().
 if (!exists("frankenplot", mode = "function")) {
     file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
@@ -21,7 +26,7 @@ if (!exists("frankenplot", mode = "function")) {
 }
 
 if (!exists("frankenplot", mode = "function")) {
-    stop("frankenplot() is not available. Install the current Jumble package or run the wrapper from a source checkout with devtools available.")
+    stop("frankenplot() is not available. Install the current JumbleCNV package or run the wrapper from a source checkout with devtools available.")
 }
 
 # Define command-line options
@@ -37,6 +42,10 @@ option_list <- list(
     make_option(c("-o", "--output"),
         type = "character", default = NULL,
         help = "Output HTML report file (required)", metavar = "FILE"
+    ),
+    make_option("--output-png",
+        type = "character", default = NULL,
+        help = "Static tumor overview PNG file (optional; defaults to output HTML path with .png extension)", metavar = "FILE"
     ),
     make_option("--normal-jumble-csv",
         type = "character", default = NULL,
@@ -155,10 +164,16 @@ if (!is.null(opt$genome) && !(opt$genome %in% c("hg19", "hg38"))) {
     stop("Genome must be 'hg19' or 'hg38' when supplied")
 }
 
-# Create output directory when needed.
+# Create output directories when needed.
 output_dir <- dirname(opt$output)
 if (!identical(output_dir, ".") && !dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE)
+}
+if (!is.null(opt$`output-png`)) {
+    output_png_dir <- dirname(opt$`output-png`)
+    if (!identical(output_png_dir, ".") && !dir.exists(output_png_dir)) {
+        dir.create(output_png_dir, recursive = TRUE)
+    }
 }
 
 # Read externally supplied HRD/GIS table if supplied.
@@ -200,7 +215,8 @@ if (!is.null(opt$`dpyd-csv`)) {
     cat("DPYD CSV:", opt$`dpyd-csv`, "\n")
 }
 cat("Genome:", if (is.null(opt$genome)) "auto" else opt$genome, "\n")
-cat("Output:", opt$output, "\n\n")
+cat("Output:", opt$output, "\n")
+cat("Static PNG:", if (is.null(opt$`output-png`)) "auto" else opt$`output-png`, "\n\n")
 
 # Generate report.
 frankenplot(
@@ -219,9 +235,11 @@ frankenplot(
     hrdtable = hrdtable,
     qc_file = opt$`qc-file`,
     dpyd_json = opt$`dpyd-json`,
-    dpyd_csv = opt$`dpyd-csv`
+    dpyd_csv = opt$`dpyd-csv`,
+    output_png = opt$`output-png`
 )
 
 cat("\n✓ Frankenplot report generated\n")
 cat("  - File:", opt$output, "\n")
+cat("  - Static PNG:", if (is.null(opt$`output-png`)) sub("\\.html?$", ".png", opt$output, ignore.case = TRUE) else opt$`output-png`, "\n")
 cat("\nDone.\n")

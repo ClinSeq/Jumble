@@ -3,7 +3,7 @@
 # without requiring full HTML rendering.
 
 frankenplot_wrapper_path <- function() {
-  script_path <- system.file("scripts", "jumble-frankenplot.R", package = "Jumble")
+  script_path <- system.file("scripts", "jumble-frankenplot.R", package = "JumbleCNV")
   if (nzchar(script_path) && file.exists(script_path)) {
     return(script_path)
   }
@@ -51,7 +51,7 @@ test_that("jumble-frankenplot wrapper exposes help text", {
   res <- run_frankenplot_wrapper("--help")
 
   if (!identical(res$status, 0L) && grepl("there is no package called", res$stderr)) {
-    skip("Child Rscript process cannot load local Jumble package")
+    skip("Child Rscript process cannot load local JumbleCNV package")
   }
 
   expect_identical(res$status, 0L)
@@ -59,6 +59,7 @@ test_that("jumble-frankenplot wrapper exposes help text", {
   expect_match(res$stdout, "--jumble-csv")
   expect_match(res$stdout, "--cns")
   expect_match(res$stdout, "--output")
+  expect_match(res$stdout, "--output-png")
   expect_match(res$stdout, "--somatic-vcf")
 })
 
@@ -69,7 +70,7 @@ test_that("jumble-frankenplot wrapper validates missing required arguments", {
     fail("Wrapper unexpectedly succeeded without required arguments")
   }
   if (grepl("there is no package called", res$stderr)) {
-    skip("Child Rscript process cannot load local Jumble package")
+    skip("Child Rscript process cannot load local JumbleCNV package")
   }
 
   expect_match(res$stderr, "--jumble-csv")
@@ -104,7 +105,7 @@ test_that("jumble-frankenplot wrapper validates optional file arguments before r
     fail("Wrapper unexpectedly succeeded with a missing optional VCF")
   }
   if (grepl("there is no package called", res$stderr)) {
-    skip("Child Rscript process cannot load local Jumble package")
+    skip("Child Rscript process cannot load local JumbleCNV package")
   }
 
   expect_match(res$stderr, "--somatic-vcf file not found")

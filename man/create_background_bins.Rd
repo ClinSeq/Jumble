@@ -6,6 +6,9 @@
 \usage{
 create_background_bins(raw_targets, chromlength)
 }
+\value{
+A GRanges object containing background bins.
+}
 \description{
 Create Background (Antitarget) Bins
 }

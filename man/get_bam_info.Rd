@@ -6,6 +6,9 @@
 \usage{
 get_bam_info(bam_file)
 }
+\value{
+A list containing chromosome lengths and chromosome naming style metadata.
+}
 \description{
 Extract Chromosome Lengths and Style from BAM
 }

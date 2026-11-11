@@ -316,7 +316,7 @@ get_chrom_arms <- function(genome = "hg19") {
 #'
 #' \emph{Copy number features} (counted as number of distinct chromosome arms):
 #' \itemize{
-#'   \item \strong{transitions}: 5 Mb bins where |Δlog2| > threshold between
+#'   \item \strong{transitions}: 5 Mb bins where |Deltalog2| > threshold between
 #'     adjacent bins (sum of bins, not arms).
 #'   \item \strong{long_cnv}: Arms where the 25 Mb running median deviates
 #'     from the arm median by > threshold_log2.
@@ -341,7 +341,7 @@ get_chrom_arms <- function(genome = "hg19") {
 #'     a telomeric bin.
 #' }
 #'
-#' See \code{docs/METHODS.md} Sections 6.3–6.6 for mathematical details.
+#' See \code{docs/METHODS.md} Sections 6.3-6.6 for mathematical details.
 #'
 #' @param bins_in Data.table of 5 Mb bins with log2, maf, arm, chromosome,
 #'   telomeric, arm_median, and long_median columns.
@@ -470,7 +470,7 @@ safe_runmed <- function(x, k) {
 #' features and selects its own columns by name.
 #'
 #' For regression models the raw numeric prediction is returned.
-#' For classification models the positive-class probability × 100 is returned.
+#' For classification models the positive-class probability x 100 is returned.
 #'
 #' @param model Model object, function, or NULL.
 #' @param feats List of feature values from comp_gis_for_fraction.
@@ -479,14 +479,14 @@ safe_runmed <- function(x, k) {
 apply_hrd_model <- function(model, feats) {
     if (is.null(model)) return(NULL)
 
-    # Check randomForest availability when model requires it
+    # Check randomForest availability when model requires it.
     if (inherits(model, "randomForest") &&
-        !require("randomForest", character.only = TRUE, quietly = TRUE)) {
-        stop("Package 'randomForest' is required to use the supplied hrd_model. ",
-             "Install it with: install.packages('randomForest')")
+        !requireNamespace("randomForest", quietly = TRUE)) {
+        stop("Package 'randomForest' is required to use the supplied hrd_model.",
+             call. = FALSE)
     }
 
-    # Build full feature data frame — model picks its columns by name
+    # Build full feature data frame - model picks its columns by name
     feats_df <- as.data.frame(feats[c(
         "focal_gain", "focal_loss", "local_cnv",
         "local_gain", "local_loss", "loh",

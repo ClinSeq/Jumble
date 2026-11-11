@@ -16,7 +16,9 @@ build_reference(
 \arguments{
 \item{count_files}{Vector of paths to count RDS files.}
 
-\item{annotation_source}{Source of annotation ("biomart" or path to folder).}
+\item{annotation_source}{Source of annotation. Use "biomart" to fetch
+annotation from Ensembl, or provide a path to an RDS file containing local
+annotation tables.}
 
 \item{genome}{Genome version ("hg19" or "hg38"). If NULL, detected from
 count files.}
@@ -24,10 +26,37 @@ count files.}
 \item{output_file}{Path to save the output RDS file. If NULL, defaults to '<target>.reference.RDS' or 'jumble.WGS.reference.RDS'.}
 
 \item{cores}{Number of cores for parallel processing.}
+
+\item{mirror}{Optional Ensembl mirror passed to biomaRt when
+\code{annotation_source = "biomart"}.}
 }
 \value{
 The reference object (invisibly if saved).
 }
 \description{
 Creates a reference object from a set of count files.
+}
+\examples{
+testdata_dir <- system.file("testdata", package = "JumbleCNV")
+count_files <- list.files(
+  file.path(testdata_dir, "gene_panel", "reference"),
+  pattern = "[.]counts[.]RDS$",
+  full.names = TRUE
+)
+
+annotation <- list(
+  allgenes = data.table::data.table(),
+  allexons = data.table::data.table(),
+  cancergenes_clinseq = data.table::data.table()
+)
+annotation_file <- tempfile(fileext = ".RDS")
+saveRDS(annotation, annotation_file)
+
+reference <- build_reference(
+  count_files = count_files[1:2],
+  annotation_source = annotation_file,
+  genome = "hg19",
+  output_file = tempfile(fileext = ".RDS")
+)
+names(reference)
 }

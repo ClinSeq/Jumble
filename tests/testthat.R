@@ -1,4 +1,4 @@
 library(testthat)
-library(Jumble)
+library(JumbleCNV)
 
-test_check("Jumble")
+test_check("JumbleCNV")

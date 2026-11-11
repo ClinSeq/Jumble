@@ -6,6 +6,9 @@
 \usage{
 fetch_ensembl_data(mart, genome, attributes, type = "genes")
 }
+\value{
+A data.table containing Ensembl annotation records.
+}
 \description{
 Fetch Ensembl Data (Genes or Exons)
 }
