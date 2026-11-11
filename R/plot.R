@@ -321,12 +321,19 @@ prepare_somatic_data <- function(somatic_table, targets, reference = NULL) {
   somatic_labels <- NULL
   cancergenes_list <- NULL
   
-  if (!is.null(reference) && !is.null(reference$cancergenes_clinseq)) {
-    cancergenes_list <- reference$cancergenes_clinseq$gene
+  if (!is.null(reference)) {
+    cancergenes <- reference_annotation_table(reference, "cancergenes_clinseq")
+    if (!is.null(cancergenes)) {
+      if ("gene" %in% names(cancergenes)) {
+        cancergenes_list <- cancergenes$gene
+      } else if ("hugo_symbol" %in% names(cancergenes)) {
+        cancergenes_list <- cancergenes$hugo_symbol
+      }
+    }
   }
   
   if (is.null(cancergenes_list) && !is.null(targets$selected_genes)) {
-    cancergenes_list <- unique(na.omit(as.character(targets$selected_genes)))
+    cancergenes_list <- unique(stats::na.omit(as.character(targets$selected_genes)))
   }
   
   if (nrow(somatic_plot) > 0 && !is.null(cancergenes_list)) {
@@ -1071,9 +1078,9 @@ arrange_and_save_plots <- function(plot_list, use_snp, title, output_file) {
   
   # Save if specified
   if (!is.null(output_file)) {
-    png(file = output_file, width = 1600, height = 1300, res = 100)
+    grDevices::png(file = output_file, width = 1600, height = 1300, res = 100)
     suppressWarnings(print(fig))
-    dev.off()
+    grDevices::dev.off()
   }
   
   invisible(fig)
@@ -1305,7 +1312,7 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
   final_plot <- p1 + p2 +
     plot_annotation(
       title = title,
-      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
+      caption = paste0("Jumble ", utils::packageVersion("JumbleCNV"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
       theme = theme(plot.title = ggplot2::element_text(size = 16, hjust = 0.5),
                     plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50"))
     )

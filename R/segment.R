@@ -117,6 +117,14 @@ process_segments <- function(segments, targets) {
 #' @importFrom data.table as.data.table :=
 #' @keywords internal
 annotate_segments <- function(segments, cancergenes, cancerexons, allgenes = NULL, cytobands = NULL) {
+  if (is.null(cancergenes) || !is.data.frame(cancergenes) || nrow(cancergenes) == 0) {
+    return(segments)
+  }
+
+  if (is.null(cancerexons) || !is.data.frame(cancerexons) || nrow(cancerexons) == 0) {
+    return(segments)
+  }
+
   has_coords <- all(c("chromosome", "start", "end") %in% names(cancergenes))
   
   if (!has_coords) {
@@ -267,7 +275,9 @@ segment_data <- function(targets, alpha = NULL, cancergenes = NULL, cancerexons 
   targets <- processed$targets
   
   # 3. Annotate Segments (if references are provided)
-  if (!is.null(cancergenes) && !is.null(cancerexons) && nrow(cancergenes) > 0) {
+  if (!is.null(cancergenes) && !is.null(cancerexons) &&
+      is.data.frame(cancergenes) && is.data.frame(cancerexons) &&
+      nrow(cancergenes) > 0 && nrow(cancerexons) > 0) {
     segments <- annotate_segments(segments, cancergenes, cancerexons, allgenes, cytobands)
   }
   

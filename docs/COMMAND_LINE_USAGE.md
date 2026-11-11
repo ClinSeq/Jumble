@@ -1,6 +1,6 @@
 # Command-Line Usage
 
-The Jumble package provides command-line wrapper scripts that match the original workflow, allowing use in pipelines and production environments.
+The JumbleCNV package provides command-line wrapper scripts that match the original workflow, allowing use in pipelines and production environments.
 
 ## Installation
 
@@ -8,14 +8,14 @@ After installing the package, the scripts are available in the package installat
 
 ```r
 # Find script location
-system.file("scripts", package = "Jumble")
+system.file("scripts", package = "JumbleCNV")
 ```
 
 Or add to your PATH:
 
 ```bash
 # Add to ~/.bashrc or ~/.zshrc
-export PATH="$PATH:$(Rscript -e 'cat(system.file("scripts", package="Jumble"))')"
+export PATH="$PATH:$(Rscript -e 'cat(system.file("scripts", package="JumbleCNV"))')"
 ```
 
 ## Scripts
@@ -94,20 +94,67 @@ Rscript jumble-run.R -r reference.RDS -b sample.counts.RDS -v sample.vcf.gz
 Rscript jumble-run.R -r reference.RDS -b sample.bam -v germline.vcf.gz -s somatic.vcf.gz -o output/
 ```
 
+**With a custom output prefix:**
+```bash
+Rscript jumble-run.R -r reference.RDS -b sample.bam -o output/ -p tumor1
+# writes output/tumor1.jumble.csv, output/tumor1.qc.csv, output/tumor1.png, ...
+```
+
 **Options:**
 - `-r, --reference FILE`: Reference file (required)
 - `-b, --bam FILE`: Input BAM or .counts.RDS file (required)
 - `-v, --vcf FILE`: Germline SNP VCF file for GIS/LOH analysis (optional)
 - `-s, --somatic FILE`: Somatic VCF file for mutation overlay on plots (optional)
 - `-o, --output DIR`: Output directory [default: current directory]
+- `-p, --prefix STR`: Prefix for output filenames [default: input BAM/counts basename]
 - `-a, --alpha N`: Segmentation alpha parameter [default: 0.001]
+- `-V, --version`: Print Jumble version and exit
 
 **Output files:**
+
+`<sample>` below is the input BAM/counts basename, or the value of `--prefix` when given.
+
 - `<sample>.jumble.csv` - Normalized bin-level copy number data
 - `<sample>.jumble_snps.csv` - SNP/LOH data (if SNP VCF provided)
 - `<sample>.jumble_gis.csv` - GIS/HRD scores (if SNP VCF provided)
 - `<sample>.qc.csv` - QC metrics (21 columns, always generated)
 - `<sample>.png` - Copy number plot
+
+---
+
+### 4. jumble-frankenplot.R
+
+Generate a Frankenplot HTML report from Jumble copy-number outputs. The wrapper
+also writes the main tumor overview figure as a static PNG for non-interactive
+review systems such as Curator.
+
+**Basic usage:**
+```bash
+Rscript jumble-frankenplot.R -j sample.jumble.csv -c sample.cns -o sample.frankenplot.html
+```
+
+**With explicit static PNG path:**
+```bash
+Rscript jumble-frankenplot.R -j sample.jumble.csv -c sample.cns -o sample.frankenplot.html --output-png sample.frankenplot.png
+```
+
+**Options:**
+- `-j, --jumble-csv FILE`: Tumor .jumble.csv file (required)
+- `-c, --cns FILE`: Tumor .cns segment file (required)
+- `-o, --output FILE`: Output HTML report file (required)
+- `--output-png FILE`: Static tumor overview PNG [default: output HTML path with .png extension]
+- `--normal-jumble-csv FILE`: Normal .jumble.csv file (optional)
+- `--normal-cns FILE`: Normal .cns segment file (optional)
+- `--tumor-snp-vcf FILE`: Tumor SNP VCF for allele-ratio plotting (optional)
+- `--normal-snp-vcf FILE`: Normal SNP VCF for allele-ratio plotting (optional)
+- `-s, --somatic-vcf FILE`: Somatic mutation VCF for variant overlay (optional)
+- `--germline-vcf FILE`: Germline mutation VCF for variant overlay (optional)
+- `--hrdtable FILE`: Precomputed GIS/HRD table (optional)
+- `--qc-file FILE`: QC metrics CSV file (optional; auto-detected when omitted)
+
+**Output files:**
+- `<sample>.frankenplot.html` - Interactive Frankenplot report
+- `<sample>.frankenplot.png` - Static main tumor overview plot
 
 ---
 
@@ -153,7 +200,7 @@ Rscript jumble-run.R -r wgs.reference.RDS -b tumor.counts.RDS -o results/
 | Feature | Command-Line Scripts | R Package Functions |
 |---------|---------------------|---------------------|
 | **Use Case** | Pipelines, production | Interactive analysis, development |
-| **Installation** | Included in package | `library(Jumble)` |
+| **Installation** | Included in package | `library(JumbleCNV)` |
 | **Syntax** | `Rscript jumble-run.R -r ref.RDS -b sample.bam` | `run_jumble(bam_file, reference_file)` |
 | **Options** | Command-line flags | Function arguments |
 | **Parallelization** | `-c` flag | `cores` argument |
@@ -226,7 +273,7 @@ rule jumble_run:
 
 ## Notes
 
-- All scripts require the Jumble package to be installed
+- All scripts require the JumbleCNV package to be installed
 - BAM files must be sorted and indexed (.bai)
 - VCF files should be bgzipped and indexed (.tbi) for best performance
 - Use `--help` flag for detailed options: `Rscript jumble-run.R --help`

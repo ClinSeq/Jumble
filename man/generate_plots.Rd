@@ -33,6 +33,9 @@ generate_plots(
 
 \item{somatic}{Somatic variants table}
 }
+\value{
+Invisibly returns the generated plot object or NULL after writing plot output.
+}
 \description{
 Generate and Save Plots
 }

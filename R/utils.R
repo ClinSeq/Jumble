@@ -6,7 +6,7 @@
 #' @keywords internal
 get_jumble_version <- function() {
   ver <- tryCatch({
-    as.character(utils::packageVersion("Jumble"))
+    as.character(utils::packageVersion("JumbleCNV"))
   }, error = function(e) {
     "unknown"
   })
@@ -165,7 +165,7 @@ sanitize_legacy_counts <- function(counts) {
   bg_gr   <- gr[bg_mask]
   tgt_gr  <- gr[!bg_mask]
 
-  # Early exit: no background-background overlaps → already clean.
+  # Early exit: no background-background overlaps -> already clean.
   if (length(bg_gr) == 0 || length(tgt_gr) == 0) {
     counts$ranges <- gr
     return(counts)

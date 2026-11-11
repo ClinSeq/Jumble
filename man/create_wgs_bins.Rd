@@ -6,6 +6,9 @@
 \usage{
 create_wgs_bins(chromlength, bin_size)
 }
+\value{
+A GRanges object containing WGS bins.
+}
 \description{
 Create WGS Bins
 }

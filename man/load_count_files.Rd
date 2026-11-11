@@ -6,6 +6,9 @@
 \usage{
 load_count_files(count_files)
 }
+\value{
+A list containing count objects, source BED labels, and detected genome builds.
+}
 \description{
 Load Count Files
 }

@@ -4,10 +4,12 @@
 \alias{load_reference_data}
 \title{Load Reference Data}
 \usage{
-load_reference_data(reference_file)
+load_reference_data(reference_file, annotation_mode = "auto")
 }
 \arguments{
 \item{reference_file}{Path to reference RDS file or reference object}
+
+\item{annotation_mode}{Annotation handling mode.}
 }
 \value{
 Reference object

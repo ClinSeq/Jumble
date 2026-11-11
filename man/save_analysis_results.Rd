@@ -38,6 +38,9 @@ save_analysis_results(
 
 \item{snp_vcf}{SNP VCF path}
 }
+\value{
+Invisibly returns NULL after writing result files.
+}
 \description{
 Save Analysis Results
 }

@@ -15,6 +15,8 @@ run_jumble(
   correction = "optim",
   hrd_model_file = NULL,
   exclude_long_fragments = FALSE,
+  prefix = NULL,
+  annotation_mode = "auto",
   ...
 )
 }
@@ -42,6 +44,15 @@ instead of count (all fragments) as the main depth signal. Set to TRUE when
 using clipoverlap BAMs where the midpoint calculation may be affected by
 TLEN inflation from overlap clipping.}
 
+\item{prefix}{Optional prefix for output filenames. When supplied, it replaces
+the sample name derived from the input BAM/counts basename, so results are
+written as \code{<prefix>.jumble.csv}, \code{<prefix>.png}, etc.}
+
+\item{annotation_mode}{Annotation handling mode. "auto" uses embedded
+reference annotation when present and otherwise runs without annotation;
+"none" always runs without annotation; "embedded" requires embedded
+annotation in the reference.}
+
 \item{...}{Additional arguments.}
 }
 \value{
@@ -49,4 +60,28 @@ A list containing results (targets, segments, etc.).
 }
 \description{
 Runs the complete Jumble analysis pipeline on a query sample. For interactive HTML genome reports, use the standalone \code{\link{frankenplot}} function on the output files.
+}
+\examples{
+testdata_dir <- system.file("testdata", package = "JumbleCNV")
+out_dir <- tempfile("jumble-example-")
+dir.create(out_dir)
+
+results <- run_jumble(
+  bam_file = file.path(
+    testdata_dir,
+    "gene_panel",
+    "samples",
+    "test_sample_1.counts.RDS"
+  ),
+  reference_file = file.path(testdata_dir, "gene_panel", "reference.RDS"),
+  snp_vcf = file.path(
+    testdata_dir,
+    "gene_panel",
+    "samples",
+    "test_sample_1.vcf.gz"
+  ),
+  output_dir = out_dir,
+  annotation_mode = "none"
+)
+names(results)
 }

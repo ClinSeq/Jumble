@@ -4,7 +4,7 @@
 #' object for each indel variant. Processes by chromosome for memory
 #' efficiency with large variant sets (200k-1M+).
 #'
-#' This function extracts flanks only — the variant sequence itself
+#' This function extracts flanks only - the variant sequence itself
 #' (deleted or inserted bases) is derived from VCF REF/ALT at the
 #' calling layer, not from the reference.
 #'
@@ -155,10 +155,10 @@ extract_flanks <- function(variants, genome, flank_size = 25L, max_del_length = 
 #'
 #'   **Thresholds (in motif repeat units):**
 #'   - Period 1: >= 6 repeats (6bp). Validated: AUC=0.930.
-#'   - Period 2: >= 4 repeats (8bp). Provisional — validate on MSH3 data.
-#'   - Period 3: >= 3 repeats (9bp). Provisional — validate.
+#'   - Period 2: >= 4 repeats (8bp). Provisional - validate on MSH3 data.
+#'   - Period 3: >= 3 repeats (9bp). Provisional - validate.
 #'
-#'   **No external dependencies** — uses base R string operations only.
+#'   **No external dependencies** - uses base R string operations only.
 #'
 #' @examples
 #' \dontrun{
@@ -183,7 +183,7 @@ classify_msi <- function(nonanchored_alt, left_flank, right_flank, max_del_lengt
 
   # Thresholds: minimum repeat units for each period
   # Period 1: validated (Youden-optimal, AUC=0.930)
-  # Period 2-3: provisional — validate on appropriate cohorts
+  # Period 2-3: provisional - validate on appropriate cohorts
   THRESHOLDS <- c(6L, 4L, 3L)  # index = period
 
   n <- length(nonanchored_alt)

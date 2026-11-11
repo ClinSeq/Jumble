@@ -1,6 +1,6 @@
 test_that("get_chrom_arms returns correct structure for hg19 and hg38", {
     library(data.table)
-    arms_hg19 <- Jumble:::get_chrom_arms("hg19")
+    arms_hg19 <- JumbleCNV:::get_chrom_arms("hg19")
     expect_true(is.data.table(arms_hg19))
     expect_equal(nrow(arms_hg19), 46) # 22 autosomes * 2 + X*2 = 46
 

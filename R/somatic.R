@@ -143,7 +143,7 @@ parse_vep_csq <- function(vcf, keep_mask) {
   idx <- sapply(cols, function(x) which(csq_fields == x)[1]) # Named vector of indices
   
   parsed_csq <- lapply(csq_data, function(csq_strings) {
-    if (length(csq_strings) == 0) return(as.list(setNames(rep("", length(cols)), cols)))
+    if (length(csq_strings) == 0) return(as.list(stats::setNames(rep("", length(cols)), cols)))
     
     parsed_list <- strsplit(csq_strings, "\\|")
     is_canonical <- sapply(parsed_list, function(x) if (!is.na(idx["CANONICAL"]) && length(x) >= idx["CANONICAL"]) x[idx["CANONICAL"]] == "YES" else FALSE)
@@ -176,14 +176,14 @@ annotate_hotspots <- function(somatic, genome) {
   
   hotspots_loaded <- FALSE
   tryCatch({
-    data("hotspots_snvs", package = "Jumble", envir = environment())
-    data("hotspots_inframes", package = "Jumble", envir = environment())
+    data("hotspots_snvs", package = "JumbleCNV", envir = environment())
+    data("hotspots_inframes", package = "JumbleCNV", envir = environment())
     
     if (genome == "hg38") {
-      data("hotspots_splice_hg38", package = "Jumble", envir = environment())
+      data("hotspots_splice_hg38", package = "JumbleCNV", envir = environment())
       if (exists("hotspots_splice_hg38")) hotspots_splice <- hotspots_splice_hg38
     } else {
-      data("hotspots_splice_hg19", package = "Jumble", envir = environment())
+      data("hotspots_splice_hg19", package = "JumbleCNV", envir = environment())
       if (exists("hotspots_splice_hg19")) hotspots_splice <- hotspots_splice_hg19
     }
     if (exists("hotspots_snvs") && exists("hotspots_inframes")) hotspots_loaded <- TRUE

@@ -26,6 +26,9 @@ export_analysis_files(
 
 \item{snp_table}{SNP table (needed for annotation)}
 }
+\value{
+Invisibly returns NULL after writing output files.
+}
 \description{
 Export Analysis Files (CNR, CNS, SEG, GENES)
 }

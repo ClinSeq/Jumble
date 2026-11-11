@@ -6,6 +6,9 @@
 \usage{
 create_target_bins(raw_targets)
 }
+\value{
+A GRanges object containing target bins.
+}
 \description{
 Create Target Bins
 }
