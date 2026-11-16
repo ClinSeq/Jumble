@@ -1186,6 +1186,12 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
     if (!identical(png_dir, ".") && !dir.exists(png_dir)) {
       dir.create(png_dir, recursive = TRUE)
     }
+    # render() evaluates the template's chunks from the template's own directory
+    # (the installed package), so a relative PNG path would land there. Anchor it
+    # to the caller's working directory. normalizePath() on the file itself would
+    # leave a relative path unchanged because the PNG does not exist yet, so
+    # normalise the (now existing) directory instead.
+    output_png <- file.path(normalizePath(dirname(output_png)), basename(output_png))
   }
 
   # Render. knitr writes its intermediates next to the input by default, which fails when the

@@ -258,15 +258,8 @@ test_that("frankenplot validates output_png length", {
   )
 })
 
-test_that("fp_render_report passes static PNG path to the template", {
-  skip_if_not_installed("rmarkdown")
-
-  tmp_dir <- tempfile("frankenplot-render-")
-  dir.create(tmp_dir)
-  html_file <- file.path(tmp_dir, "sample.frankenplot.html")
-  png_file <- file.path(tmp_dir, "sample.frankenplot.png")
-  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
-
+# Minimal pre-processed tumor inputs for rendering the Frankenplot template.
+render_minimal_report <- function(html_file, png_file) {
   bins <- data.table::data.table(
     chromosome = rep(c("1", "2"), each = 20),
     start = rep(seq(1, by = 1000, length.out = 20), 2),
@@ -292,8 +285,8 @@ test_that("fp_render_report passes static PNG path to the template", {
   )
 
   Jumble:::fp_render_report(
-    bins_t = data.table::copy(bins),
-    segments_t = data.table::copy(segments),
+    bins_t = bins,
+    segments_t = segments,
     bins_n = NULL,
     segments_n = NULL,
     alf = NULL,
@@ -310,8 +303,41 @@ test_that("fp_render_report passes static PNG path to the template", {
     tumor_jumble_csv = "sample.jumble.csv",
     output_png = png_file
   )
+}
+
+test_that("fp_render_report passes static PNG path to the template", {
+  skip_if_not_installed("rmarkdown")
+
+  tmp_dir <- tempfile("frankenplot-render-")
+  dir.create(tmp_dir)
+  html_file <- file.path(tmp_dir, "sample.frankenplot.html")
+  png_file <- file.path(tmp_dir, "sample.frankenplot.png")
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+
+  render_minimal_report(html_file, png_file)
 
   expect_true(file.exists(html_file))
+  expect_true(file.exists(png_file))
+  expect_gt(file.info(png_file)$size, 0)
+})
+
+test_that("fp_render_report resolves a relative PNG path from the caller's working directory", {
+  skip_if_not_installed("rmarkdown")
+
+  # render() runs template chunks from the template's directory, so relative
+  # output paths (as used in Nextflow work dirs) must be anchored beforehand.
+  tmp_dir <- normalizePath(tempfile("frankenplot-relative-"), mustWork = FALSE)
+  dir.create(tmp_dir)
+  old_wd <- setwd(tmp_dir)
+  on.exit({
+    setwd(old_wd)
+    unlink(tmp_dir, recursive = TRUE)
+  }, add = TRUE)
+
+  render_minimal_report("sample.frankenplot.html", file.path("plots", "sample.frankenplot.png"))
+
+  expect_true(file.exists(file.path(tmp_dir, "sample.frankenplot.html")))
+  png_file <- file.path(tmp_dir, "plots", "sample.frankenplot.png")
   expect_true(file.exists(png_file))
   expect_gt(file.info(png_file)$size, 0)
 })
