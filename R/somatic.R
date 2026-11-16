@@ -176,14 +176,14 @@ annotate_hotspots <- function(somatic, genome) {
   
   hotspots_loaded <- FALSE
   tryCatch({
-    data("hotspots_snvs", package = "JumbleCNV", envir = environment())
-    data("hotspots_inframes", package = "JumbleCNV", envir = environment())
+    data("hotspots_snvs", package = "Jumble", envir = environment())
+    data("hotspots_inframes", package = "Jumble", envir = environment())
     
     if (genome == "hg38") {
-      data("hotspots_splice_hg38", package = "JumbleCNV", envir = environment())
+      data("hotspots_splice_hg38", package = "Jumble", envir = environment())
       if (exists("hotspots_splice_hg38")) hotspots_splice <- hotspots_splice_hg38
     } else {
-      data("hotspots_splice_hg19", package = "JumbleCNV", envir = environment())
+      data("hotspots_splice_hg19", package = "Jumble", envir = environment())
       if (exists("hotspots_splice_hg19")) hotspots_splice <- hotspots_splice_hg19
     }
     if (exists("hotspots_snvs") && exists("hotspots_inframes")) hotspots_loaded <- TRUE

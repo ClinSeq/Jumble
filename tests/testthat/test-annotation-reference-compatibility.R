@@ -31,7 +31,7 @@ test_that("reference annotation modes resolve legacy and slim references", {
     )
   )
 
-  normalized_legacy <- JumbleCNV:::normalize_reference_object(legacy_ref)
+  normalized_legacy <- Jumble:::normalize_reference_object(legacy_ref)
   expect_identical(normalized_legacy$reference_schema_version, "legacy-embedded")
   expect_identical(normalized_legacy$annotation_resources$mode, "embedded")
   expect_true(normalized_legacy$annotation_resources$has_gene_annotation)
@@ -45,23 +45,23 @@ test_that("reference annotation modes resolve legacy and slim references", {
   slim_ref$cancergenes_clinseq <- NULL
   slim_ref$cytobands <- NULL
 
-  normalized_slim <- JumbleCNV:::normalize_reference_object(slim_ref)
+  normalized_slim <- Jumble:::normalize_reference_object(slim_ref)
   expect_identical(normalized_slim$reference_schema_version, "slim")
   expect_identical(normalized_slim$annotation_resources$mode, "none")
   expect_false(normalized_slim$annotation_resources$has_gene_annotation)
 
-  explicit_none <- JumbleCNV:::normalize_reference_object(legacy_ref, annotation_mode = "none")
+  explicit_none <- Jumble:::normalize_reference_object(legacy_ref, annotation_mode = "none")
   expect_identical(explicit_none$annotation_resources$mode, "none")
   expect_false(explicit_none$annotation_resources$has_gene_annotation)
 
   expect_error(
-    JumbleCNV:::normalize_reference_object(slim_ref, annotation_mode = "embedded"),
+    Jumble:::normalize_reference_object(slim_ref, annotation_mode = "embedded"),
     "contains no embedded annotation"
   )
 })
 
 test_that("target and segment annotation helpers are silent without annotation", {
-  reference <- JumbleCNV:::normalize_reference_object(list(target_bed_file = "mock.bed"), annotation_mode = "none")
+  reference <- Jumble:::normalize_reference_object(list(target_bed_file = "mock.bed"), annotation_mode = "none")
 
   targets <- data.table::data.table(
     chromosome = c("1", "1", "1"),
@@ -73,9 +73,9 @@ test_that("target and segment annotation helpers are silent without annotation",
   )
 
   expect_silent({
-    annotated_targets <- JumbleCNV:::add_gene_annotations(data.table::copy(targets), reference)
-    annotated_targets <- JumbleCNV:::add_cytoband_annotations(annotated_targets, reference)
-    annotated_targets <- JumbleCNV:::add_exon_annotations(annotated_targets, reference)
+    annotated_targets <- Jumble:::add_gene_annotations(data.table::copy(targets), reference)
+    annotated_targets <- Jumble:::add_cytoband_annotations(annotated_targets, reference)
+    annotated_targets <- Jumble:::add_exon_annotations(annotated_targets, reference)
   })
 
   expect_true("gene" %in% names(annotated_targets))
@@ -97,7 +97,7 @@ test_that("target and segment annotation helpers are silent without annotation",
   )
 
   expect_silent({
-    annotated_segments <- JumbleCNV:::annotate_segments(
+    annotated_segments <- Jumble:::annotate_segments(
       data.table::copy(segments),
       cancergenes = NULL,
       cancerexons = NULL,
@@ -110,7 +110,7 @@ test_that("target and segment annotation helpers are silent without annotation",
 })
 
 test_that("run_jumble accepts explicit no-annotation mode with existing fixtures", {
-  testdata_dir <- system.file("testdata", package = "JumbleCNV")
+  testdata_dir <- system.file("testdata", package = "Jumble")
   if (testdata_dir == "") testdata_dir <- "inst/testdata"
 
   ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")
@@ -140,7 +140,7 @@ test_that("run_jumble accepts explicit no-annotation mode with existing fixtures
 })
 
 test_that("run_jumble supports slim references without embedded annotation", {
-  testdata_dir <- system.file("testdata", package = "JumbleCNV")
+  testdata_dir <- system.file("testdata", package = "Jumble")
   if (testdata_dir == "") testdata_dir <- "inst/testdata"
 
   ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")

@@ -62,7 +62,7 @@ A list containing results (targets, segments, etc.).
 Runs the complete Jumble analysis pipeline on a query sample. For interactive HTML genome reports, use the standalone \code{\link{frankenplot}} function on the output files.
 }
 \examples{
-testdata_dir <- system.file("testdata", package = "JumbleCNV")
+testdata_dir <- system.file("testdata", package = "Jumble")
 out_dir <- tempfile("jumble-example-")
 dir.create(out_dir)
 

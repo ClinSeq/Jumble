@@ -6,7 +6,7 @@
 #' @keywords internal
 get_jumble_version <- function() {
   ver <- tryCatch({
-    as.character(utils::packageVersion("JumbleCNV"))
+    as.character(utils::packageVersion("Jumble"))
   }, error = function(e) {
     "unknown"
   })

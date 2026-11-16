@@ -1,12 +1,12 @@
 ---
-title: "Introduction to JumbleCNV"
-author: "JumbleCNV developers"
+title: "Introduction to Jumble"
+author: "Jumble developers"
 output:
   BiocStyle::html_document:
     toc: true
     toc_depth: 2
 vignette: >
-  %\VignetteIndexEntry{Introduction to JumbleCNV}
+  %\VignetteIndexEntry{Introduction to Jumble}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -20,16 +20,16 @@ knitr::opts_chunk$set(
 
 # Introduction
 
-**JumbleCNV** provides copy-number analysis workflows for short-read sequencing data. It supports targeted resequencing panels and whole-genome sequencing (WGS), including read-count generation, reference-panel construction, normalization, segmentation, quality-control summaries, and genomic-instability scoring.
+**Jumble** provides copy-number analysis workflows for short-read sequencing data. It supports targeted resequencing panels and whole-genome sequencing (WGS), including read-count generation, reference-panel construction, normalization, segmentation, quality-control summaries, and genomic-instability scoring.
 
 The package is being prepared for Bioconductor because the workflow uses genomic ranges, sequence annotations, variant calls, and reproducible package fixtures that align with Bioconductor infrastructure. This vignette uses bundled example data only and avoids live annotation-service queries so it can run during package checks without network access.
 
 ## Installation
 
-When available from Bioconductor, JumbleCNV will be installed with `BiocManager::install()`. During development, load the package from a local checkout or installed source package.
+When available from Bioconductor, Jumble will be installed with `BiocManager::install()`. During development, load the package from a local checkout or installed source package.
 
 ```r
-library(JumbleCNV)
+library(Jumble)
 ```
 
 ## Workflow Overview
@@ -41,11 +41,11 @@ library(JumbleCNV)
 ## Setup
 
 ```{r setup, warning=FALSE, message=FALSE}
-library(JumbleCNV)
+library(Jumble)
 library(data.table)
 
 # Locate test data directory
-testdata_dir <- system.file("testdata", package = "JumbleCNV")
+testdata_dir <- system.file("testdata", package = "Jumble")
 if (testdata_dir == "") testdata_dir <- "../inst/testdata" # Fallback for dev
 
 print(testdata_dir)
@@ -53,9 +53,9 @@ print(testdata_dir)
 
 ## Workflow Steps
 
-JumbleCNV can be run entirely from R or using the included command-line wrapper scripts. The locations of the wrapper scripts can be found using:
+Jumble can be run entirely from R or using the included command-line wrapper scripts. The locations of the wrapper scripts can be found using:
 ```r
-system.file("scripts", package = "JumbleCNV")
+system.file("scripts", package = "Jumble")
 ```
 
 ### 1. Generate Count Files
@@ -236,7 +236,7 @@ if (!is.null(results$gis)) {
 
 ### 6. Visualization
 
-JumbleCNV automatically generates plots in the output directory.
+Jumble automatically generates plots in the output directory.
 
 ```{r list_plots}
 list.files(out_dir, pattern = ".png")
@@ -244,13 +244,13 @@ list.files(out_dir, pattern = ".png")
 
 # Citation
 
-If you use JumbleCNV in your research, please cite the following preprint:
+If you use Jumble in your research, please cite the following preprint:
 
 > Mayrhofer, M. et al. "Sensitive detection of copy number alterations in samples with low circulating tumor DNA fraction." *MedRxiv* (2024). [doi:10.1101/2024.05.04.24306860](https://www.medrxiv.org/content/10.1101/2024.05.04.24306860v1)
 
 # Conclusion
 
-This workflow covers the basics of using JumbleCNV for copy-number analysis. For WGS data, the process is similar, differing primarily in the `build_reference` step where a fixed bin size is used rather than target regions.
+This workflow covers the basics of using Jumble for copy-number analysis. For WGS data, the process is similar, differing primarily in the `build_reference` step where a fixed bin size is used rather than target regions.
 
 # Session information
 

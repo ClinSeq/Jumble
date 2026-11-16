@@ -1,4 +1,4 @@
-Package: JumbleCNV
+Package: Jumble
 Type: Package
 Title: Copy Number Analysis of Short Read Sequencing Data
 Version: 0.6.0
@@ -7,15 +7,15 @@ Authors@R: c(
     person("Johan", "Lindberg", role = "aut"),
     person("Sarath", "Murugan", role = "aut")
   )
-Description: JumbleCNV provides copy number analysis workflows for short-read
+Description: Jumble provides copy number analysis workflows for short-read
     sequencing data from targeted gene panels and whole-genome sequencing. It
     supports read-count generation, reference-panel construction, normalization,
     segmentation, quality-control summaries, and genomic instability scoring.
     The package is designed for reproducible analysis of sequencing-derived copy
     number profiles using Bioconductor genomic infrastructure.
-URL: https://github.com/ClinSeq/JumbleCNV,
+URL: https://github.com/ClinSeq/Jumble,
     https://www.medrxiv.org/content/10.1101/2024.05.04.24306860v1
-BugReports: https://github.com/ClinSeq/JumbleCNV/issues
+BugReports: https://github.com/ClinSeq/Jumble/issues
 License: GPL-3
 BiocType: Software
 Encoding: UTF-8

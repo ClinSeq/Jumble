@@ -37,7 +37,7 @@ The reference object (invisibly if saved).
 Creates a reference object from a set of count files.
 }
 \examples{
-testdata_dir <- system.file("testdata", package = "JumbleCNV")
+testdata_dir <- system.file("testdata", package = "Jumble")
 count_files <- list.files(
   file.path(testdata_dir, "gene_panel", "reference"),
   pattern = "[.]counts[.]RDS$",

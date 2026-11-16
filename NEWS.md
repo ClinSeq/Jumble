@@ -1,17 +1,17 @@
-# JumbleCNV 0.6.0
+# Jumble 0.6.0
 
-*   Renamed package to `JumbleCNV` and updated metadata for Bioconductor preparation.
+*   Updated package metadata for Bioconductor preparation.
 *   Reduced bundled resources, hardened offline tests/vignette checks, and kept real-data dev workflows under workspace-root `local_dev/`.
 *   Added annotation/reference compatibility for legacy and slim references.
 *   Restored Frankenplot static PNG output with the original compact layout.
 
-# JumbleCNV 0.5.5
+# Jumble 0.5.5
 
 *   **Frankenplot HTML Reports**: Added the standalone `frankenplot()` function
     for interactive HTML genome reports from Jumble output files and 
     `inst/scripts/jumble-frankenplot.R` for pipeline use.
 
-# JumbleCNV 0.5.4
+# Jumble 0.5.4
 
 *   **Contamination Estimation**: Restored `estimate_contamination()` with a
     Random Forest model trained on 259 HRD-2024 germline panel VCFs. Uses
@@ -22,7 +22,7 @@
     split-specific contaminant pools to prevent information leakage.
     Model exported as compact 5.8 MB RDS (100 trees, nodesize=20, xz compression).
 
-# JumbleCNV 0.5.3
+# Jumble 0.5.3
 
 *   **Segmentation Engine**: Switched from PSCBS to DNAcopy CBS with `smooth.CNA`
     preprocessing. The smoothing step removes single-bin outliers before
@@ -41,7 +41,7 @@
     METHODS.md.
 *   **DESCRIPTION**: Added URL field with GitHub repository and preprint DOI.
 
-# JumbleCNV 0.5.2
+# Jumble 0.5.2
 
 *   **Leave-Me-Out Guard**: Fixed crash when query sample matches all reference
     samples (single-sample reference). Exclusion is now skipped with a warning
@@ -52,7 +52,7 @@
     `TMB_indel`, `TMB_score` (mutations per Mb; `NA` without somatic VCF).
 *   **Plot Title**: Fixed scalar extraction from QC metric columns.
 
-# JumbleCNV 0.5.1
+# Jumble 0.5.1
 
 *   **Leave-Me-Out Restored**: Test samples present in the reference are now
     correctly excluded before PCA normalization, preventing self-normalization bias.
@@ -72,7 +72,7 @@
 *   **Strand Filter**: Fixed `gaps()` in `create_background_bins` to filter for
     `strand == "*"`, preventing phantom stranded background bins in new count files.
 
-# JumbleCNV 0.5.0
+# Jumble 0.5.0
 
 *   **Custom HRD Model**: Support for user-supplied HRD models (randomForest, glm,
     or plain function) via `hrd_model_file` parameter and `-m` CLI flag. Adds a
@@ -84,7 +84,7 @@
     comprehensive segment-level gene annotation.
 *   **Ideogram Improvements**: Improved ideogram visualization.
 
-# JumbleCNV 0.4.1
+# Jumble 0.4.1
 
 *   **MSI Classification**: Added microsatellite instability calling from somatic VCFs.
     *   New `classify_msi()` engine detects indels in mono-, di-, and trinucleotide repeat tracts.
@@ -97,7 +97,7 @@
 *   **Somatic Plot Shapes**: Indels shown as filled triangles (▲ insertion, ▼ deletion), SNVs as circles.
 *   **Bug fix**: Fixed `generate_counts` handling of pre-computed counts files.
 
-# JumbleCNV 0.4.0
+# Jumble 0.4.0
 
 *   **Preview Release**: First preview release of the Jumble R package for copy number analysis of short read sequencing data.
 *   **Features**:

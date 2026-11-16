@@ -3,7 +3,7 @@
 # without requiring actual VCF files or rendering.
 
 test_that("frankenplot_cancer_genes returns expected gene list", {
-  genes <- JumbleCNV:::frankenplot_cancer_genes()
+  genes <- Jumble:::frankenplot_cancer_genes()
   expect_type(genes, "character")
   expect_true(length(genes) > 50)
   # Key genes must be present
@@ -22,8 +22,8 @@ test_that("fp_select_snp_sample handles single-sample VCF-like input", {
   mock_vcf <- matrix(nrow = 0, ncol = 1)
   colnames(mock_vcf) <- "SAMPLE1"
 
-  expect_identical(JumbleCNV:::fp_select_snp_sample(mock_vcf, role = "tumor"), 1L)
-  expect_identical(JumbleCNV:::fp_select_snp_sample(mock_vcf, role = "normal"), 1L)
+  expect_identical(Jumble:::fp_select_snp_sample(mock_vcf, role = "tumor"), 1L)
+  expect_identical(Jumble:::fp_select_snp_sample(mock_vcf, role = "normal"), 1L)
 })
 
 test_that("fp_annotate_effect classifies variants correctly", {
@@ -35,7 +35,7 @@ test_that("fp_annotate_effect classifies variants correctly", {
     is_hotspot = c(FALSE, FALSE, FALSE, FALSE, FALSE)
   )
 
-  result <- JumbleCNV:::fp_annotate_effect(dt)
+  result <- Jumble:::fp_annotate_effect(dt)
 
   expect_equal(result$effect[1], "high-impact")   # HIGH impact
   expect_equal(result$effect[2], "uncertain")      # MODERATE impact
@@ -53,7 +53,7 @@ test_that("fp_annotate_effect handles hotspot override", {
     is_hotspot = c(TRUE)
   )
 
-  result <- JumbleCNV:::fp_annotate_effect(dt)
+  result <- Jumble:::fp_annotate_effect(dt)
   expect_equal(result$effect[1], "hotspot")
 })
 
@@ -66,7 +66,7 @@ test_that("fp_annotate_effect handles empty data.table", {
     is_hotspot = logical(0)
   )
 
-  result <- JumbleCNV:::fp_annotate_effect(dt)
+  result <- Jumble:::fp_annotate_effect(dt)
   expect_equal(nrow(result), 0)
 })
 
@@ -86,7 +86,7 @@ test_that("fp_read_jumble_csv reads and processes correctly", {
     test_csv
   )
 
-  bins <- JumbleCNV:::fp_read_jumble_csv(test_csv)
+  bins <- Jumble:::fp_read_jumble_csv(test_csv)
 
   expect_s3_class(bins, "data.table")
   expect_true("bin" %in% names(bins))
@@ -100,7 +100,7 @@ test_that("fp_read_jumble_csv reads and processes correctly", {
 
 test_that("fp_read_jumble_csv stops on missing file", {
   expect_error(
-    JumbleCNV:::fp_read_jumble_csv("/nonexistent/file.csv"),
+    Jumble:::fp_read_jumble_csv("/nonexistent/file.csv"),
     "not found"
   )
 })
@@ -131,8 +131,8 @@ test_that("fp_read_cns maps segments to bins", {
     test_cns
   )
 
-  bins <- JumbleCNV:::fp_read_jumble_csv(test_csv)
-  result <- JumbleCNV:::fp_read_cns(test_cns, bins)
+  bins <- Jumble:::fp_read_jumble_csv(test_csv)
+  result <- Jumble:::fp_read_cns(test_cns, bins)
 
   expect_type(result, "list")
   expect_true("bins" %in% names(result))
@@ -149,7 +149,7 @@ test_that("fp_map_snps_to_bins handles NULL input", {
     bin = 1:2
   )
 
-  result <- JumbleCNV:::fp_map_snps_to_bins(NULL, bins)
+  result <- Jumble:::fp_map_snps_to_bins(NULL, bins)
   expect_true("allele_ratio" %in% names(result$bins))
   expect_true(all(is.na(result$bins$allele_ratio)))
 })
@@ -162,7 +162,7 @@ test_that("fp_map_variants_to_bins handles NULL input", {
     bin = 1:2
   )
 
-  result <- JumbleCNV:::fp_map_variants_to_bins(NULL, bins)
+  result <- Jumble:::fp_map_variants_to_bins(NULL, bins)
   expect_null(result)
 })
 
@@ -179,16 +179,16 @@ test_that("fp_map_variants_to_bins handles empty data.table", {
     end = numeric(0)
   )
 
-  result <- JumbleCNV:::fp_map_variants_to_bins(variants, bins)
+  result <- Jumble:::fp_map_variants_to_bins(variants, bins)
   expect_equal(nrow(result), 0)
 })
 
 test_that("fp_parse_dpyd handles missing files gracefully", {
-  result <- JumbleCNV:::fp_parse_dpyd(NULL, NULL)
+  result <- Jumble:::fp_parse_dpyd(NULL, NULL)
   expect_null(result$dpyd_result)
   expect_null(result$dpyd_table)
 
-  result2 <- JumbleCNV:::fp_parse_dpyd("/nonexistent.json", "/nonexistent.csv")
+  result2 <- Jumble:::fp_parse_dpyd("/nonexistent.json", "/nonexistent.csv")
   expect_null(result2$dpyd_result)
   expect_null(result2$dpyd_table)
 })
@@ -291,7 +291,7 @@ test_that("fp_render_report passes static PNG path to the template", {
     gstop = c(20000, 40000)
   )
 
-  JumbleCNV:::fp_render_report(
+  Jumble:::fp_render_report(
     bins_t = data.table::copy(bins),
     segments_t = data.table::copy(segments),
     bins_n = NULL,
@@ -317,24 +317,24 @@ test_that("fp_render_report passes static PNG path to the template", {
 })
 
 test_that("fp_parse_germline_vcf returns correct structure for NULL input", {
-  result <- JumbleCNV:::fp_parse_germline_vcf(NULL)
+  result <- Jumble:::fp_parse_germline_vcf(NULL)
   expect_type(result, "list")
   expect_null(result$galf_n)
   expect_null(result$galf_t)
 })
 
 test_that("fp_parse_somatic_vcf returns NULL for missing file", {
-  result <- JumbleCNV:::fp_parse_somatic_vcf(NULL)
+  result <- Jumble:::fp_parse_somatic_vcf(NULL)
   expect_null(result)
 
-  result2 <- JumbleCNV:::fp_parse_somatic_vcf("/nonexistent.vcf")
+  result2 <- Jumble:::fp_parse_somatic_vcf("/nonexistent.vcf")
   expect_null(result2)
 })
 
 test_that("fp_parse_snp_vcf returns NULL for missing file", {
-  result <- JumbleCNV:::fp_parse_snp_vcf(NULL, 1)
+  result <- Jumble:::fp_parse_snp_vcf(NULL, 1)
   expect_null(result)
 
-  result2 <- JumbleCNV:::fp_parse_snp_vcf("/nonexistent.vcf", 1)
+  result2 <- Jumble:::fp_parse_snp_vcf("/nonexistent.vcf", 1)
   expect_null(result2)
 })

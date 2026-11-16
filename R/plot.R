@@ -1312,7 +1312,7 @@ plot_gis_score <- function(gis_table, targets, output_file, title = "GIS Analysi
   final_plot <- p1 + p2 +
     plot_annotation(
       title = title,
-      caption = paste0("Jumble ", utils::packageVersion("JumbleCNV"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
+      caption = paste0("Jumble ", utils::packageVersion("Jumble"), " on ", format(Sys.time(), "%a %b %e %Y, %H:%M")),
       theme = theme(plot.title = ggplot2::element_text(size = 16, hjust = 0.5),
                     plot.caption = ggplot2::element_text(hjust = 1, size = 8, color = "grey50"))
     )

@@ -1,6 +1,6 @@
 test_that("Full pipeline runs on test data", {
   # Paths
-  bam_file <- system.file("extdata", "test_sample.bam", package = "JumbleCNV")
+  bam_file <- system.file("extdata", "test_sample.bam", package = "Jumble")
   # If not installed yet, use local path
   if (bam_file == "") bam_file <- "../../inst/extdata/test_sample.bam"
 
@@ -55,7 +55,7 @@ test_that("Full pipeline runs on test data", {
   # 3. Run Jumble using stable bundled gene-panel fixtures. This keeps the
   # end-to-end run_jumble() smoke test independent of the synthetic WGS
   # self-reference above.
-  testdata_dir <- system.file("testdata", package = "JumbleCNV")
+  testdata_dir <- system.file("testdata", package = "Jumble")
   if (testdata_dir == "") testdata_dir <- "inst/testdata"
   sample_file <- file.path(testdata_dir, "gene_panel/samples/test_sample_1.counts.RDS")
   ref_file <- file.path(testdata_dir, "gene_panel/reference.RDS")
@@ -78,7 +78,7 @@ test_that("Full pipeline runs on test data", {
 })
 
 test_that("generate_counts works with targeted mode (BED file)", {
-  bam_file <- system.file("extdata", "test_sample.bam", package = "JumbleCNV")
+  bam_file <- system.file("extdata", "test_sample.bam", package = "Jumble")
   if (bam_file == "") bam_file <- "../../inst/extdata/test_sample.bam"
   
   expect_true(file.exists(bam_file))

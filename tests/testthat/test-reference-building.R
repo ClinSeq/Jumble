@@ -1,9 +1,9 @@
 library(testthat)
-library(JumbleCNV)
+library(Jumble)
 
 test_that("Reference building works for gene panel", {
   # Use package test data
-  testdata_dir <- system.file("testdata", package = "JumbleCNV")
+  testdata_dir <- system.file("testdata", package = "Jumble")
   if (testdata_dir == "") testdata_dir <- "inst/testdata" # For development
 
   ref_samples <- list.files(
@@ -44,7 +44,7 @@ test_that("Reference building works for gene panel", {
 })
 
 test_that("Reference building works for WGS", {
-  bam_file <- system.file("extdata", "test_sample.bam", package = "JumbleCNV")
+  bam_file <- system.file("extdata", "test_sample.bam", package = "Jumble")
   if (bam_file == "") bam_file <- "inst/extdata/test_sample.bam"
 
   expect_true(file.exists(bam_file))

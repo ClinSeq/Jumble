@@ -21,7 +21,7 @@ A list containing counts, ranges, and metadata.
 Counts reads in target bins (or WGS bins) from a BAM file.
 }
 \examples{
-bam_file <- system.file("extdata", "test_sample.bam", package = "JumbleCNV")
+bam_file <- system.file("extdata", "test_sample.bam", package = "Jumble")
 if (nzchar(bam_file)) {
   counts <- generate_counts(bam_file, wgs_bin_size = 1000000)
   names(counts)

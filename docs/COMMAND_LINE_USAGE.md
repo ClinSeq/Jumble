@@ -149,12 +149,32 @@ Rscript jumble-frankenplot.R -j sample.jumble.csv -c sample.cns -o sample.franke
 - `--normal-snp-vcf FILE`: Normal SNP VCF for allele-ratio plotting (optional)
 - `-s, --somatic-vcf FILE`: Somatic mutation VCF for variant overlay (optional)
 - `--germline-vcf FILE`: Germline mutation VCF for variant overlay (optional)
+- `--tumor-sample-name NAME`: Tumor sample column in the SNP VCF (optional; required with `--compute-gis` for a multi-sample VCF)
+- `-g, --genome GENOME`: `hg19` or `hg38` [default: auto-detect; required with `--compute-gis`]
 - `--hrdtable FILE`: Precomputed GIS/HRD table (optional)
+- `--compute-gis`: Compute the GIS table from the tumor `.jumble.csv` and `--tumor-snp-vcf` (optional; cannot be combined with `--hrdtable`)
+- `--gis-output FILE`: Output CSV for the computed GIS table, only used with `--compute-gis` [default: output HTML path with .gis.csv extension]
 - `--qc-file FILE`: QC metrics CSV file (optional; auto-detected when omitted)
+
+**GIS computation (`--compute-gis`):** GIS is only computed when `--compute-gis`
+is given; otherwise the wrapper behaves exactly as before. With the flag, the
+GIS table is computed the same way `run_jumble()` does (from the tumor
+`.jumble.csv` and the SNP VCF), shown in the HRD tab and written to
+`--gis-output`. In that case:
+- `--tumor-snp-vcf` and `--genome` are required.
+- For a multi-sample VCF, `--tumor-sample-name` is required.
+- If `--tumor-sample-name` is supplied, it must exactly match one VCF sample column.
+- `--hrdtable` must not be supplied.
+
+```bash
+Rscript jumble-frankenplot.R -j tumor.jumble.csv -c tumor.cns -o report.html \
+  --tumor-snp-vcf paired.vcf.gz --tumor-sample-name TUMOR --genome hg38 --compute-gis
+```
 
 **Output files:**
 - `<sample>.frankenplot.html` - Interactive Frankenplot report
 - `<sample>.frankenplot.png` - Static main tumor overview plot
+- `<sample>.frankenplot.gis.csv` - Computed GIS table (only with `--compute-gis`)
 
 ---
 

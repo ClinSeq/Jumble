@@ -42,7 +42,7 @@ fetch_ensembl_data <- function(mart, genome, attributes, type = "genes") {
 #' Process Local Cancer Genes
 #' @keywords internal
 process_cancer_genes <- function(allgenes) {
-  cancer_genes_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
+  cancer_genes_path <- system.file("extdata", "cancer_genes.csv", package = "Jumble")
   if (cancer_genes_path == "") cancer_genes_path <- "inst/extdata/cancer_genes.csv"
   
   if (!file.exists(cancer_genes_path)) {
@@ -206,7 +206,7 @@ calculate_gc_content <- function(targets, ucsc_ranges, genome) {
 #' @importFrom data.table as.data.table setnames :=
 load_cytobands <- function(genome) {
   filename <- if (genome == "hg19") "cytoband_hg19.rds" else "cytoband_hg38.rds"
-  path <- system.file("extdata", filename, package = "JumbleCNV")
+  path <- system.file("extdata", filename, package = "Jumble")
   if (path == "") path <- file.path("inst/extdata", filename)
   if (!file.exists(path)) { 
     warning("Cytoband file not found: ", filename)

@@ -390,14 +390,14 @@ fp_annotate_hotspots <- function(dt, genome = "hg19") {
 
   hotspots_loaded <- FALSE
   tryCatch({
-    data("hotspots_snvs", package = "JumbleCNV", envir = environment())
-    data("hotspots_inframes", package = "JumbleCNV", envir = environment())
+    data("hotspots_snvs", package = "Jumble", envir = environment())
+    data("hotspots_inframes", package = "Jumble", envir = environment())
 
     if (genome == "hg38") {
-      data("hotspots_splice_hg38", package = "JumbleCNV", envir = environment())
+      data("hotspots_splice_hg38", package = "Jumble", envir = environment())
       if (exists("hotspots_splice_hg38")) hotspots_splice <- hotspots_splice_hg38
     } else {
-      data("hotspots_splice_hg19", package = "JumbleCNV", envir = environment())
+      data("hotspots_splice_hg19", package = "Jumble", envir = environment())
       if (exists("hotspots_splice_hg19")) hotspots_splice <- hotspots_splice_hg19
     }
     if (exists("hotspots_snvs") && exists("hotspots_inframes")) hotspots_loaded <- TRUE
@@ -1162,7 +1162,7 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
   # Find the Rmd template
   template_path <- system.file(
     "rmarkdown", "templates", "frankenplot", "skeleton", "skeleton.Rmd",
-    package = "JumbleCNV"
+    package = "Jumble"
   )
   if (template_path == "" || !file.exists(template_path)) {
     # Fallback for development
@@ -1170,7 +1170,7 @@ fp_render_report <- function(bins_t, segments_t, bins_n, segments_n,
                                 "frankenplot", "skeleton", "skeleton.Rmd")
   }
   if (!file.exists(template_path)) {
-    stop("Frankenplot Rmd template not found. Is the JumbleCNV package installed correctly?")
+    stop("Frankenplot Rmd template not found. Is the Jumble package installed correctly?")
   }
 
   # Derive sample name from tumor CSV filename

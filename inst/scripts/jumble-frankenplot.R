@@ -1,17 +1,17 @@
 #!/usr/bin/env Rscript
-# JumbleCNV Frankenplot - Command-line wrapper for frankenplot()
+# Jumble Frankenplot - Command-line wrapper for frankenplot()
 # Usage: Rscript jumble-frankenplot.R -j <tumor.jumble.csv> -c <tumor.cns> -o <output.html>
 
 suppressPackageStartupMessages(library(optparse))
 
 # Prefer the installed package, but allow source-checkout validation before
 # installation. This keeps wrapper tests active during local development.
-if (requireNamespace("JumbleCNV", quietly = TRUE)) {
-    suppressPackageStartupMessages(library(JumbleCNV))
+if (requireNamespace("Jumble", quietly = TRUE)) {
+    suppressPackageStartupMessages(library(Jumble))
 }
 
 # When this wrapper is run directly from an uninstalled source checkout, the
-# installed JumbleCNV package may lag behind the source tree. Fall back to loading
+# installed Jumble package may lag behind the source tree. Fall back to loading
 # the source checkout if the installed package does not yet export frankenplot().
 if (!exists("frankenplot", mode = "function")) {
     file_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
@@ -26,7 +26,7 @@ if (!exists("frankenplot", mode = "function")) {
 }
 
 if (!exists("frankenplot", mode = "function")) {
-    stop("frankenplot() is not available. Install the current JumbleCNV package or run the wrapper from a source checkout with devtools available.")
+    stop("frankenplot() is not available. Install the current Jumble package or run the wrapper from a source checkout with devtools available.")
 }
 
 # Define command-line options
@@ -87,6 +87,14 @@ option_list <- list(
         type = "character", default = NULL,
         help = "Precomputed GIS/HRD table file readable by data.table::fread() (optional)", metavar = "FILE"
     ),
+    make_option("--compute-gis",
+        action = "store_true", default = FALSE,
+        help = "Compute the GIS table from the tumor .jumble.csv and --tumor-snp-vcf (requires --tumor-snp-vcf and --genome; multi-sample VCFs also require --tumor-sample-name). Cannot be combined with --hrdtable"
+    ),
+    make_option("--gis-output",
+        type = "character", default = NULL,
+        help = "Output CSV for the computed GIS table (only used with --compute-gis; defaults to output HTML path with .gis.csv extension)", metavar = "FILE"
+    ),
     make_option("--qc-file",
         type = "character", default = NULL,
         help = "QC metrics CSV file (optional; auto-detected from tumor .jumble.csv when omitted)", metavar = "FILE"
@@ -104,7 +112,7 @@ option_list <- list(
 opt_parser <- OptionParser(
     usage = "Usage: %prog [options]",
     option_list = option_list,
-    description = "\nGenerate a Frankenplot HTML genome report from Jumble output files.\n\nExamples:\n  Rscript jumble-frankenplot.R -j sample.jumble.csv -c sample.cns -o sample.frankenplot.html\n  Rscript jumble-frankenplot.R -j tumor.jumble.csv -c tumor.cns -o report.html --tumor-snp-vcf sample.vcf.gz --somatic-vcf sample.somatic.vep.vcf.gz\n  Rscript jumble-frankenplot.R -j tumor.jumble.csv -c tumor.cns -o report.html --normal-jumble-csv normal.jumble.csv --normal-cns normal.cns --tumor-snp-vcf paired.vcf.gz --normal-snp-vcf paired.vcf.gz"
+    description = "\nGenerate a Frankenplot HTML genome report from Jumble output files.\n\nExamples:\n  Rscript jumble-frankenplot.R -j sample.jumble.csv -c sample.cns -o sample.frankenplot.html\n  Rscript jumble-frankenplot.R -j tumor.jumble.csv -c tumor.cns -o report.html --tumor-snp-vcf sample.vcf.gz --somatic-vcf sample.somatic.vep.vcf.gz\n  Rscript jumble-frankenplot.R -j tumor.jumble.csv -c tumor.cns -o report.html --normal-jumble-csv normal.jumble.csv --normal-cns normal.cns --tumor-snp-vcf paired.vcf.gz --normal-snp-vcf paired.vcf.gz\n  Rscript jumble-frankenplot.R -j tumor.jumble.csv -c tumor.cns -o report.html --tumor-snp-vcf sample.vcf.gz --genome hg38 --compute-gis --gis-output report.gis.csv"
 )
 
 opt <- parse_args(opt_parser)
@@ -164,6 +172,48 @@ if (!is.null(opt$genome) && !(opt$genome %in% c("hg19", "hg38"))) {
     stop("Genome must be 'hg19' or 'hg38' when supplied")
 }
 
+# GIS is only computed when explicitly requested with --compute-gis; without
+# the flag the wrapper behaves exactly as before (no extra validation or output).
+compute_gis <- isTRUE(opt$`compute-gis`)
+if (!compute_gis && !is.null(opt$`gis-output`)) {
+    stop("--gis-output requires --compute-gis")
+}
+gis_output <- NULL
+if (compute_gis) {
+    if (!is.null(opt$hrdtable)) {
+        stop("--compute-gis cannot be combined with --hrdtable")
+    }
+    if (is.null(opt$`tumor-snp-vcf`)) {
+        stop("--tumor-snp-vcf is required with --compute-gis")
+    }
+    if (is.null(opt$genome)) {
+        stop("--genome is required with --compute-gis")
+    }
+
+    # The tumor sample must be identified unambiguously: a supplied name must
+    # exactly match one VCF column, and multi-sample VCFs require a name.
+    vcf_samples <- VariantAnnotation::samples(
+        VariantAnnotation::scanVcfHeader(opt$`tumor-snp-vcf`)
+    )
+    tumor_name <- opt$`tumor-sample-name`
+    if (length(vcf_samples) > 1 && is.null(tumor_name)) {
+        stop("--tumor-sample-name is required with --compute-gis for a multi-sample VCF. ",
+             "Available samples: ", paste(vcf_samples, collapse = ", "))
+    }
+    if (!is.null(tumor_name) && sum(vcf_samples == tumor_name) != 1) {
+        stop("--tumor-sample-name '", tumor_name, "' must exactly match one sample in ",
+             opt$`tumor-snp-vcf`, ". Available samples: ", paste(vcf_samples, collapse = ", "))
+    }
+
+    gis_output <- opt$`gis-output`
+    if (is.null(gis_output)) {
+        gis_output <- sub("\\.html?$", ".gis.csv", opt$output, ignore.case = TRUE)
+        if (identical(gis_output, opt$output)) {
+            gis_output <- paste0(opt$output, ".gis.csv")
+        }
+    }
+}
+
 # Create output directories when needed.
 output_dir <- dirname(opt$output)
 if (!identical(output_dir, ".") && !dir.exists(output_dir)) {
@@ -175,11 +225,39 @@ if (!is.null(opt$`output-png`)) {
         dir.create(output_png_dir, recursive = TRUE)
     }
 }
+if (!is.null(gis_output)) {
+    gis_output_dir <- dirname(gis_output)
+    if (!identical(gis_output_dir, ".") && !dir.exists(gis_output_dir)) {
+        dir.create(gis_output_dir, recursive = TRUE)
+    }
+}
 
-# Read externally supplied HRD/GIS table if supplied.
+# Read externally supplied HRD/GIS table, or compute it when --compute-gis is set.
 hrdtable <- NULL
+gis_written <- FALSE
 if (!is.null(opt$hrdtable)) {
     hrdtable <- data.table::fread(opt$hrdtable)
+} else if (compute_gis) {
+    # Mirror run_jumble(): raw .jumble.csv targets + process_snps() SNP table.
+    # A separate copy is used so frankenplot() reads the CSV unmodified.
+    gis_targets <- data.table::fread(opt$`jumble-csv`)
+    gis_targets[, chromosome := sub("^chr", "", as.character(chromosome))]
+    snp_table <- Jumble:::process_snps(opt$`tumor-snp-vcf`, gis_targets,
+                                       sample_name = opt$`tumor-sample-name`)
+    if (is.null(snp_table) || nrow(snp_table) == 0) {
+        message("No usable SNPs in ", opt$`tumor-snp-vcf`, "; skipping GIS computation.")
+    } else {
+        gis_res <- Jumble:::compute_gis_and_maf(
+            gis_targets, snp_table,
+            reference = list(genome = opt$genome),
+            hrd_model = NULL
+        )
+        hrdtable <- gis_res$gis_table
+        if (!is.null(hrdtable)) {
+            data.table::fwrite(hrdtable, gis_output, sep = ",")
+            gis_written <- TRUE
+        }
+    }
 }
 
 cat("Jumble Frankenplot Report\n")
@@ -204,6 +282,10 @@ if (!is.null(opt$`germline-vcf`)) {
 }
 if (!is.null(opt$hrdtable)) {
     cat("HRD/GIS table:", opt$hrdtable, "\n")
+} else if (compute_gis) {
+    cat(paste0("HRD/GIS table: computed from ", opt$`tumor-snp-vcf`,
+        " (sample ", if (is.null(opt$`tumor-sample-name`)) "<single-sample VCF>" else opt$`tumor-sample-name`,
+        ", genome ", opt$genome, ")\n"))
 }
 if (!is.null(opt$`qc-file`)) {
     cat("QC file:", opt$`qc-file`, "\n")
@@ -242,4 +324,7 @@ frankenplot(
 cat("\n✓ Frankenplot report generated\n")
 cat("  - File:", opt$output, "\n")
 cat("  - Static PNG:", if (is.null(opt$`output-png`)) sub("\\.html?$", ".png", opt$output, ignore.case = TRUE) else opt$`output-png`, "\n")
+if (gis_written) {
+    cat("  - GIS CSV:", gis_output, "\n")
+}
 cat("\nDone.\n")

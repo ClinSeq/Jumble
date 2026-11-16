@@ -73,7 +73,7 @@ noise <- function(data) {
   m <- median(abs(diff(data)), na.rm = TRUE)
   round(100 * (2^m - 1), 2)
 }
-label_genes <- JumbleCNV:::frankenplot_cancer_genes()
+label_genes <- Jumble:::frankenplot_cancer_genes()
 ```
 
 ```{r prepare_data, include=FALSE}
@@ -98,7 +98,7 @@ if ("gene" %in% names(bins_t)) {
 cancergenes <- data.table(gene = label_genes, symbol = label_genes)
 cancergenes[, gene_class := as.character(NA)]
 try({
-  cancer_genes_path <- system.file("extdata", "cancer_genes.csv", package = "JumbleCNV")
+  cancer_genes_path <- system.file("extdata", "cancer_genes.csv", package = "Jumble")
   if (cancer_genes_path != "" && file.exists(cancer_genes_path)) {
     cancer_gene_table <- data.table::fread(cancer_genes_path)
     if (all(c("hugo_symbol", "alteration") %in% names(cancer_gene_table))) {
@@ -1051,7 +1051,7 @@ if (!is.null(hrdtable) && nrow(hrdtable) > 0) {
   # Print GIS model coefficients only when GIS data was provided.
   try({
     cat("\nGIS model coefficients:\n")
-    print(as.data.table(JumbleCNV::gis_model(NULL)))
+    print(as.data.table(Jumble::gis_model(NULL)))
   }, silent = TRUE)
 
   cat("\nPredicted GIS by fraction:\n")
