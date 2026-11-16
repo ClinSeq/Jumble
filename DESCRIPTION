@@ -45,7 +45,8 @@ Imports:
     httr,
     knitr,
     rmarkdown,
-    kableExtra
+    kableExtra,
+    optparse
 Suggests:
     stats,
     utils,
@@ -54,7 +55,6 @@ Suggests:
     BiocStyle,
     doParallel,
     jsonlite,
-    optparse,
     randomForest,
     RJSONIO,
     testthat,
